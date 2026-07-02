@@ -1,0 +1,114 @@
+---
+title: "Open in Moodle Playground Browser Userscript"
+sidebarTitle: "Userscripts"
+description: "Install the Moodle Playground userscript to add one-click preview buttons to Moodle core GitHub PRs and Moodle Tracker issues."
+---
+
+The **Open in Moodle Playground** userscript adds a one-click preview button to Moodle **core** pull requests on GitHub and to Moodle **Tracker** peer-review issues. Click it to boot the proposed change in the browser — no checkout, no local Moodle, no server. The script targets Moodle core repositories (repositories named `moodle`) only. For plugin and theme PRs, use the [GitHub Action](github/pr-previews) instead.
+
+## Install
+
+<Steps>
+  <Step title="Install a userscript manager">
+    Install [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/) from your browser's extension store. Both are supported; Tampermonkey is more widely tested with this script.
+  </Step>
+  <Step title="Open the raw script URL">
+    Navigate to the raw `.user.js` file. Your userscript manager detects it automatically and shows a one-click install screen:
+
+    ```text
+    https://raw.githubusercontent.com/ateeducacion/moodle-playground/main/scripts/moodle-playground-pr-button.user.js
+    ```
+  </Step>
+  <Step title="Confirm the install">
+    Review the script metadata (name, version, matched URLs, granted permissions) and click **Install**. The script is now active.
+  </Step>
+  <Step title="Verify on a Moodle core PR">
+    Open any Moodle core pull request — for example `https://github.com/moodle/moodle/pull/532` — and the **▶ Open in Moodle Playground** button appears in the PR header next to the title or action buttons.
+  </Step>
+</Steps>
+
+<Tip>
+  The script also runs on the Moodle Tracker and adds a button to issues that link a GitHub compare or pull-request URL. See [Compare mode](#compare-mode) below.
+</Tip>
+
+## GitHub core-PR flow
+
+On a `https://github.com/<owner>/moodle/pull/<n>` page the script performs the following steps automatically:
+
+1. Reads the owner, repo, and PR number from the page URL. Only repositories named `moodle` are matched — this covers `moodle/moodle` and any fork named `moodle`.
+2. Resolves the PR base branch from the page DOM (the branch name chips in the PR header). If the base branch is not available in the DOM, it falls back to a lookup via the GitHub REST API (`api.github.com`).
+3. Maps the base branch to a Moodle Playground base version: `MOODLE_500_STABLE` → `5.0`, `MOODLE_404_STABLE` → `4.4`, `main`/`master` → `dev`, and so on.
+4. Builds a blueprint with `installMoodle` + `applyPrOverlay` + `login` steps and opens the playground with that blueprint encoded as `?blueprint=<base64url>`.
+
+The playground boots a prebuilt base for the resolved version and overlays the PR's changed files at runtime, then logs in as `admin`. If the [GitHub Action](github/pr-previews) already posted a preview link on the PR (in the description or a comment), the button reuses that existing action-generated URL instead of building a new one.
+
+## Compare mode
+
+Moodle's peer-review workflow does not always use pull requests — reviewers often post a GitHub **compare** link on the Tracker issue instead. The script also runs on `https://moodle.atlassian.net/*` and adds a preview button next to each qualifying GitHub link it finds in the issue's diff-URL fields:
+
+- **Compare links** — URLs matching `github.com/<owner>/moodle/compare/<base>...<head>` — build an `applyPrOverlay` blueprint that diffs `base...head`. The base Moodle version is derived from the head branch suffix: `-main` → `dev`, `-501` → `5.1`, `-500` → `5.0`, `-405` → `4.5`, `-404` → `4.4`, and so on.
+- **Pull-request links** — URLs matching `github.com/<owner>/moodle/pull/<n>` — build the same `applyPrOverlay` blueprint as the GitHub PR flow above.
+
+Only repositories named `moodle` are matched. One button is shown per unique comparison (the same `repo|base|head` triple appearing in multiple Tracker fields produces only one button). The script does **not** inject buttons on GitHub `/compare/` pages directly — on GitHub it only runs on `/pull/` pages.
+
+<Note>
+  Compare and PR badges only appear when an issue actually links a GitHub compare or pull-request URL. Before peer review is requested there may be no such link, so no badge is shown for that issue.
+</Note>
+
+## Tracker scenario button
+
+On Tracker issue pages (`moodle.atlassian.net/browse/<KEY>`) the script also adds one floating button at the bottom-right of the page that boots a playground preconfigured for reproducing the issue:
+
+- **Valid scenario block** — the button opens the playground with that scenario encoded inline as `?blueprint=<base64url>`.
+- **No scenario block** — the button opens the bundled starter site (one course, teacher and student enrolled, sample activities). This button can be disabled by setting `STARTER_SCENARIO = false` in the script configuration.
+- **Broken scenario block** — a non-clickable grey warning badge is shown instead; hovering it reveals the exact parse or validation error in its tooltip.
+
+See [Moodle Tracker Scenarios](tracker-scenarios) for the exact scenario block syntax, the starter site contents, and limitations.
+
+## Configure
+
+Edit the three constants at the top of the script via your userscript manager's built-in editor (Tampermonkey: Dashboard → script → Edit):
+
+```javascript
+const PLAYGROUND_HOST = "https://ateeducacion.github.io/moodle-playground";
+const RUN_UPGRADE = "auto"; // off | on | auto
+const STARTER_SCENARIO = true;
+```
+
+- **`PLAYGROUND_HOST`** — which Moodle Playground deployment the buttons open. Point it at the production host, a custom GitHub Pages host, or a branch preview URL (for example `https://feat-x.moodle-playground.pages.dev`).
+- **`RUN_UPGRADE`** — whether the overlay runs the Moodle database upgrade after applying the changed files. `off` skips the upgrade entirely, `on` always runs it, and `auto` runs it only when PHP files likely to require a schema change are present in the overlay.
+- **`STARTER_SCENARIO`** — whether Tracker issues without an explicit scenario block get the starter-site button. Set to `false` to show scenario buttons only, suppressing the generic starter for issues with no scenario defined.
+
+## Permissions and why they are needed
+
+The script declares two entries in its userscript metadata block:
+
+| Directive | Value | Why it is needed |
+|-----------|-------|-----------------|
+| `@grant` | `GM_xmlhttpRequest` | GitHub and Atlassian send a strict `Content-Security-Policy` (`script-src 'self'`). Declaring a real `@grant` makes the userscript manager run the script in its sandboxed content-script world, which is not blocked by the page CSP. With `@grant none` the manager injects the script as a page `<script>` tag, which both sites block — the button never appears. |
+| `@connect` | `api.github.com` | Allows the script to read a PR's base branch via the GitHub REST API when it is not available in the page DOM. The API call is unauthenticated (subject to the ~60 requests/hour rate limit per IP). |
+
+The preview button itself is a pure CSS-styled anchor element with no external image, so the page's `img-src` Content-Security-Policy does not affect it.
+
+## Limitations
+
+- **Moodle core only.** The button activates on repositories named `moodle`. Plugin and theme PRs are handled by the [GitHub Action](github/pr-previews).
+- **DOM-dependent injection.** GitHub and Jira markup changes over time. If the button stops appearing after a site redesign, the script's DOM selectors may need updating.
+- **Compare and PR badges need a GitHub link.** No GitHub compare or pull-request URL in the Tracker issue means no preview badge for that comparison. The scenario or starter floating button still appears regardless.
+- **GitHub API rate limit.** The base-branch fallback lookup is unauthenticated, giving approximately 60 requests per hour per IP address. The overlay itself runs entirely in the browser and does not consume API quota.
+- **Overlay fidelity.** Previews replace changed files whole over a prebuilt Moodle base. Composer installs, frontend asset builds, generated files, and full database upgrades are not reproduced. See `applyPrOverlay` in the blueprint reference for the full list of overlay caps and exclusions.
+
+## Disable or remove
+
+Open your userscript manager's dashboard, find **Open in Moodle Playground**, and toggle it off to disable or click the delete icon to remove it entirely. No other cleanup is needed — the script makes no persistent changes to any page or browser storage.
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Tracker Scenarios" href="tracker-scenarios" icon="ticket">
+    The scenario block format, starter site contents, and limitations for Tracker issues.
+  </Card>
+  <Card title="PR Previews" href="github/pr-previews" icon="github">
+    Automated previews for plugin and theme pull requests via the GitHub Action.
+  </Card>
+</CardGroup>

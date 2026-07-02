@@ -1,0 +1,108 @@
+---
+title: "How Moodle Playground Works: Architecture Overview"
+sidebarTitle: "Architecture"
+description: "Understand the layered architecture of Moodle Playground: Shell UI, Service Worker, PHP-WASM worker, in-memory filesystem, and SQLite database."
+---
+
+Moodle Playground runs a full Moodle LMS entirely inside your browser tab. There is no server: PHP is compiled to WebAssembly via WordPress Playground's [`@php-wasm/web`](https://github.com/WordPress/wordpress-playground), Moodle's code lives in an in-memory Emscripten MEMFS filesystem, and the database is an in-memory SQLite file accessed through an experimental PDO driver patch. No data leaves the browser, and everything is destroyed when the tab closes.
+
+## Layered overview
+
+```text
+index.html              Shell UI (toolbar, address bar, log panel)
+  └─ remote.html        Runtime host — registers the Service Worker
+       ├─ sw.js         Service Worker — intercepts and routes requests
+       └─ php-worker     PHP-WASM worker (dist/php-worker.bundle.js)
+            └─ @php-wasm/web   WebAssembly PHP 8.x
+                 ├─ Moodle core in MEMFS   (extracted from a ZIP bundle)
+                 └─ In-memory state        (SQLite + moodledata in MEMFS)
+```
+
+## Runtime flow
+
+The shell boots a scoped runtime host inside an iframe. That host registers the Service Worker, which intercepts every request under `/playground/<scope>/<runtime>/…` and forwards it to the PHP-WASM worker.
+
+On first boot, the worker extracts the Moodle ZIP bundle into MEMFS and loads a pre-built install snapshot, so Moodle is ready in roughly 3 seconds instead of running a full 8-second CLI install. From then on:
+
+1. A page request arrives at the browser iframe.
+2. The Service Worker intercepts the scoped URL and forwards it to the PHP-WASM worker.
+3. The PHP-WASM worker runs the Moodle PHP script inside WebAssembly, reading from and writing to the in-memory SQLite database via the patched PDO driver.
+4. The PHP runtime returns an HTTP response to the Service Worker.
+5. The Service Worker rewrites any Moodle-generated links and redirects to keep them valid under the subpath, then streams the HTML back to the iframe.
+
+## Components
+
+### Shell UI
+
+**Files:** `index.html`, `src/shell/main.js`
+
+The outer page: toolbar, address bar, runtime and version selector, log panel, and blueprint import. It hosts the runtime in an iframe and is responsible for rendering the progress log during boot.
+
+### Runtime host
+
+**Files:** `remote.html`, `src/remote/main.js`
+
+Registers the Service Worker and hosts the scoped playground iframe. Contains the recovery watchdog (`isFrameDocumentStalled()`, `scheduleFrameRecovery()`) that detects a stalled PHP runtime and triggers a restart.
+
+### Service Worker
+
+**File:** `sw.js`
+
+Serves the static app files and routes scoped `/playground/<scope>/<runtime>/…` requests to the PHP-WASM worker. Rewrites Moodle-generated links and redirects so they resolve correctly when the app is deployed under a subpath (for example, `/moodle-playground` on GitHub Pages).
+
+### PHP-WASM worker
+
+**File:** `dist/php-worker.bundle.js`
+
+Owns the PHP runtime for a scope. Boots Moodle, applies runtime patches, runs blueprint steps, and serves each HTTP request through `@php-wasm/web`. If the PHP runtime hits a fatal WASM error (out of memory, file descriptor exhaustion), the worker snapshots the database and user files, boots a fresh runtime, and restores state — with loop guards to prevent infinite restart cycles.
+
+### Moodle in MEMFS
+
+**Location:** `/www/moodle`
+
+Moodle core is extracted from a prebuilt ZIP into the writable in-memory Emscripten MEMFS at `/www/moodle`. Mutable data (uploads, session files, language packs) lives in `/persist/moodledata`. Despite the name `/persist`, this is still MEMFS — it is not durable storage.
+
+### SQLite in memory
+
+The database is a single SQLite file in MEMFS, accessed through an experimental PDO driver patch. Pragmas are tuned for memory-only operation (no journaling to disk). The driver is patched in two places: the upstream fork and the local copies under `patches/shared/lib/dml/` and `patches/shared/lib/ddl/`.
+
+### Generated assets
+
+**Location:** `assets/moodle/`
+
+The prebuilt Moodle ZIP bundle and the install snapshot, produced at build time by `make bundle`. These are loaded into MEMFS at boot and are what make cold-start time approximately 3 seconds.
+
+## Storage model
+
+All state lives in Emscripten's MEMFS (the JavaScript heap) and in-memory SQLite. **Nothing persists after the tab closes** — this is intentional. The playground is designed for exploration, demos, and testing, not for storing real data.
+
+Within a single tab session, mutable state under `/persist` is journaled to IndexedDB so a page reload within the same tab keeps your data — but only when the same blueprint source is used. Loading a different blueprint or clicking **Reset Playground** starts a completely fresh session.
+
+<Warning>
+  **No durable storage.** Treat every session as disposable — closing the tab destroys all data.
+
+  **Memory-bound.** Very large courses, backups, or plugins can exhaust WASM memory and crash the runtime. If the worker crashes, it will attempt to recover by restoring a snapshot, but memory-heavy operations may fail repeatedly.
+
+  **Experimental SQLite.** The PDO SQLite driver patch is not full parity with a production Moodle MySQL or PostgreSQL database. Some Moodle features that depend on database behaviors not supported by the driver may not work correctly.
+</Warning>
+
+## Subpath deployments and crash recovery
+
+The app can run from a subpath such as GitHub Pages (`/moodle-playground`). The Service Worker keeps the URL base path consistent so Moodle's redirects and links resolve correctly regardless of the deployment root.
+
+If the PHP runtime hits a fatal WASM error, the worker snapshots the database and user files, boots a fresh runtime, and restores state automatically. Loop guards in `src/remote/main.js` prevent the worker from cycling endlessly through crash-and-recover when the cause is a persistent fatal.
+
+## PHP extensions available in the WASM runtime
+
+The `@php-wasm/web` PHP runtime (versions 8.1–8.5, default 8.3) includes the following extensions built into the WASM binary:
+
+```text
+dom, iconv, intl, libxml, simplexml, xml, zip, mbstring, openssl,
+sqlite3, pdo_sqlite, phar, curl, gd, fileinfo, xmlreader, xmlwriter
+```
+
+<Note>
+  `sodium` is **not** available in the WASM runtime. The repository uses the OpenSSL fallback patch in `patches/shared/lib/classes/encryption.php` to handle all encryption needs. The runtime also downgrades the `admin/environment.xml` sodium check from `required` to `optional`, so plugin upgrades are not blocked.
+
+  `curl` is available as an extension but actual network requests from WASM use a fetch-based transport, not real sockets. Outbound PHP HTTP(S) traffic routes through `@php-wasm/web` TCP-over-fetch, and can use the `phpCorsProxyUrl` proxy as a browser-side fallback for destinations that require it.
+</Note>

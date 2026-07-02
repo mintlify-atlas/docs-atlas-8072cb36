@@ -1,0 +1,131 @@
+---
+title: "Get Started with Moodle Playground"
+sidebarTitle: "Quickstart"
+description: "Open the hosted Moodle Playground, load a blueprint, or run locally in three commands. No server or PHP needed for the hosted version."
+---
+
+Moodle Playground has two entry points: the hosted app at [moodle-playground.com](https://moodle-playground.com) (zero install, works in any modern browser) and a local build for contributors and power users who need to develop against the full toolchain. Both paths are covered below.
+
+## Try it online
+
+The fastest way to a running Moodle is to open the hosted app — nothing to install, nothing to configure, nothing leaves your browser.
+
+<Steps>
+  <Step title="Open the playground">
+    Navigate to [https://moodle-playground.com](https://moodle-playground.com). The runtime boots in a few seconds — a full Moodle site is compiled from WebAssembly and loaded into memory. Boot progress is visible in the **Logs** tab of the side panel.
+  </Step>
+  <Step title="Log in">
+    When the address bar becomes editable, the site is ready. Log in with the default administrator credentials:
+
+    | Username | Password   |
+    |----------|------------|
+    | `admin`  | `password` |
+
+  </Step>
+  <Step title="Explore">
+    You now have a full Moodle 5.0 site running entirely in your browser tab. Navigate using the toolbar's address bar — for example, type `/admin/index.php` to open site administration, or `/course/management.php` to manage courses.
+  </Step>
+</Steps>
+
+<Warning>
+  Everything runs in memory. A reload keeps your data within the same tab session, but **closing the tab destroys it entirely**, and clicking **Reset Playground** starts a clean install. Do not use the playground to store real data.
+</Warning>
+
+## Load a blueprint
+
+A blueprint is a JSON file that provisions a Moodle instance at boot — courses, users, plugins, site config, and more. The easiest way to load one is via the `?blueprint-url=` query parameter:
+
+```text
+https://moodle-playground.com/?blueprint-url=/assets/blueprints/examples/course-with-content.blueprint.json
+```
+
+This boots a Moodle with a ready-made course already in place. You can browse other shipped examples under `assets/blueprints/examples/` and learn to write your own in the [Blueprints overview](/blueprints/overview).
+
+A minimal blueprint looks like this:
+
+```json
+{
+  "landingPage": "/course/view.php?id=2",
+  "steps": [
+    { "step": "installMoodle", "options": { "siteName": "My Moodle" } },
+    { "step": "login", "username": "admin" },
+    { "step": "createCourse", "fullname": "Physics 101", "shortname": "PHYS101" }
+  ]
+}
+```
+
+## Run it locally
+
+You only need a local build to develop or contribute. The hosted version requires no local setup whatsoever.
+
+### Prerequisites
+
+Before running the local build, make sure you have:
+
+- **Node.js 18+** and **npm** — for the JavaScript build toolchain.
+- **Python 3** — used by Moodle patch and build helpers.
+- **PHP 8.3** with the `pdo_sqlite` extension — required by `make bundle` to build the Moodle install snapshot. On macOS with Homebrew: `brew install php@8.3`.
+- **Git** — to clone the repository.
+
+<Note>
+  PHP 8.3 is required specifically for the local build step. The hosted playground itself runs PHP inside WebAssembly — so no local PHP is needed to *use* the hosted version.
+</Note>
+
+### Build and serve
+
+<Steps>
+  <Step title="Clone and install dependencies">
+    ```bash
+    git clone https://github.com/ateeducacion/moodle-playground.git
+    cd moodle-playground
+    npm install
+    ```
+  </Step>
+  <Step title="Build the worker and bundle Moodle">
+    ```bash
+    make prepare && make bundle
+    ```
+
+    `make prepare` compiles the PHP-WASM worker bundle. `make bundle` uses your local PHP 8.3 to build the Moodle core ZIP and install snapshot for the default branch (`MOODLE_500_STABLE`). This step takes a minute or two on first run.
+
+    To build all supported branches at once (4.4, 4.5, 5.0, 5.1, 5.2, and `main`), use `make bundle-all` instead.
+  </Step>
+  <Step title="Start the local server">
+    ```bash
+    make serve
+    ```
+
+    Then open **[http://localhost:8080](http://localhost:8080)** in your browser.
+  </Step>
+</Steps>
+
+<Note>
+  **Why a local HTTP server?** The playground relies on a Service Worker to intercept and route requests to the PHP-WASM worker. Service Workers only register on `https://` origins or `http://localhost`. Opening `index.html` directly from the filesystem will not work — the Service Worker will not register and the playground will fail to boot.
+</Note>
+
+### Shortcut: `make up`
+
+If you want to build everything and start the server in one step:
+
+```bash
+make up
+```
+
+This runs `deps → build-version → build-worker → bundle-all-pretty → serve` in sequence, building every Moodle branch in parallel and then starting the server on port 8080.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Usage" icon="computer-mouse" href="/usage">
+    Navigate the toolbar, switch Moodle and PHP versions, manage blueprints, and reset your session.
+  </Card>
+  <Card title="Blueprints" icon="file-code" href="/blueprints/overview">
+    Provision courses, users, plugins, and site config with a declarative JSON blueprint.
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    Understand how the Service Worker, PHP-WASM worker, and in-memory filesystem fit together.
+  </Card>
+  <Card title="GitHub PR Previews" icon="github" href="/github/pr-previews">
+    Automatically boot a playground from a pull request build and validate changes before merging.
+  </Card>
+</CardGroup>

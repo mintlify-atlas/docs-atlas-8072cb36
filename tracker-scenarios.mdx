@@ -1,0 +1,106 @@
+---
+title: "Moodle Tracker Scenarios: Embed Blueprints in Issues"
+sidebarTitle: "Tracker Scenarios"
+description: "Write a Moodle Playground Scenario block in a Moodle Tracker issue to let reviewers boot a preconfigured reproduction site with one click."
+---
+
+A **Moodle Playground Scenario** is an explicit blueprint embedded directly in a Moodle Tracker issue description. When the [Open in Moodle Playground userscript](browser-userscripts) finds one on an issue page, it adds a button that boots the playground **preconfigured with the exact context needed to reproduce the issue** — the course, users, enrolments, and activities the bug requires are already in place before the reviewer clicks anything.
+
+The scenario is machine-readable JSON. Free-text "Steps to reproduce" prose is **not** interpreted: converting arbitrary human-written steps into a deterministic Moodle setup would be unreliable, so the format is explicit and deterministic instead.
+
+## Writing a scenario
+
+The payload is an ordinary blueprint JSON object — the same format as any Moodle Playground blueprint. A `steps` array is required; `landingPage`, `preferredVersions`, `runtime`, `constants`, and `resources` are optional. See the blueprint reference for every supported step type.
+
+Two placements inside the issue description are supported.
+
+### Form A — fenced code block
+
+Use a fenced code block with the `moodle-playground` language tag. This is the canonical form for markdown contexts and for tracker descriptions that preserve backticks as literal text:
+
+````markdown
+```moodle-playground
+{
+  "landingPage": "/course/view.php?id=2",
+  "steps": [
+    { "step": "createCourse", "fullname": "Reproduction course", "shortname": "REPRO" },
+    { "step": "createUser", "username": "student", "password": "password",
+      "firstname": "Test", "lastname": "Student", "email": "student@example.com" },
+    { "step": "enrolUser", "username": "student", "course": "REPRO", "role": "student" },
+    { "step": "addModule", "module": "data", "course": "REPRO", "section": 1,
+      "name": "DB without comments", "comments": 0 },
+    { "step": "login", "username": "admin" }
+  ]
+}
+```
+````
+
+### Form B — marker phrase + code block
+
+The Tracker's rich-text editor sometimes converts markdown fences into generic code blocks and drops the language tag, so the fence marker can get lost during rendering. In that case, place the marker phrase **`Moodle Playground Scenario`** (for example as a heading) immediately before a code block containing the JSON:
+
+```markdown
+### Moodle Playground Scenario
+
+{ "landingPage": "/my/", "steps": [ ... ] }
+```
+
+The JSON must be inside a code block in the rendered issue. The marker phrase is matched case-insensitively.
+
+<Tip>
+  Keep the JSON in a code block and type straight quotes (`"`), not the typographic curly quotes the rich-text editor produces in normal paragraph text. The block content is used verbatim by the parser.
+</Tip>
+
+## Detection rules
+
+Detection is text-based and fully deterministic — no natural-language inference is performed:
+
+1. **First marker wins.** The parser scans for a `` ```moodle-playground `` fenced code block opener, or the phrase `Moodle Playground Scenario` (case-insensitive, any amount of whitespace between words). The first match in the issue text is used.
+2. **First balanced JSON object after the marker is the scenario.** The parser finds the first `{` after the marker and scans forward to the matching `}`, correctly skipping braces inside JSON string values and escaped characters. The extracted text is parsed with `JSON.parse` — never executed — and must be a JSON object containing a `steps` array.
+3. **Marker with no JSON after it is a mention, not a scenario.** If the marker phrase appears in the text but there is no `{` character after it, the issue is treated as having no scenario block and no error is shown.
+4. **Marker with broken JSON shows a warning badge.** If the marker is present and a balanced `{ ... }` block follows it, but the content is not valid JSON, or the JSON is not an object, or the object has no `steps` array, a non-clickable warning badge is shown on the issue. The exact parse or validation error appears in the badge's tooltip so the author can fix it.
+
+## What the tracker button does
+
+On `moodle.atlassian.net/browse/<KEY>` pages the userscript adds one floating button at the bottom-right corner of the page:
+
+| Issue description | Button shown |
+|-------------------|-------------|
+| Valid scenario block | **▶ Open issue scenario in Moodle Playground** — opens the playground with the scenario encoded inline as `?blueprint=<base64url>` |
+| No scenario block | **▶ Open in Moodle Playground (starter site)** — opens the [starter scenario](#the-starter-scenario) (can be disabled by setting `STARTER_SCENARIO = false` in the userscript) |
+| Broken scenario block | **⚠ Moodle Playground: invalid scenario block** — a non-clickable grey badge; hover it to read the exact error message |
+
+The scenario blueprint is passed to the playground **verbatim**: the JSON you wrote in the issue is exactly what the playground loads. The playground then validates it like any other blueprint. The per-version compare and PR preview badges added by the [userscript's compare mode](browser-userscripts#compare-mode) are independent and always shown alongside the scenario button.
+
+## The starter scenario
+
+When an issue has no scenario block, the starter button loads the bundled [`tracker-starter`](https://github.com/ateeducacion/moodle-playground/blob/main/assets/blueprints/examples/tracker-starter.blueprint.json) blueprint — a generic reproduction environment proposed in [issue #166](https://github.com/ateeducacion/moodle-playground/issues/166). It provisions:
+
+- **One course:** Reproduction course (`REPRO`), topics format, 3 sections
+- **Three users:**
+  - `admin` / `password` (site administrator)
+  - `teacher` / `password` (enrolled in `REPRO` as `editingteacher`)
+  - `student` / `password` (enrolled in `REPRO` as `student`)
+- **Sample activities:** a forum, an assignment, a quiz, and a page in the course
+- **Landing page:** the `REPRO` course page, logged in as `admin`
+
+The starter site gives reviewers a working Moodle instance with realistic content immediately, without needing any scenario block in the issue at all.
+
+## Limitations
+
+- **Free-text steps are not converted.** Only the explicit scenario block (Form A or Form B) is read. Ordinary "Steps to reproduce" prose in the issue description is ignored entirely.
+- **Only supported blueprint steps are provisioned.** Unknown step types fail blueprint validation inside the playground with a clear error message. See the blueprint reference for the full list of supported steps.
+- **Quiz questions cannot be created via blueprint.** The `addModule` step creates the quiz activity structure only. Questions must be added manually inside Moodle after the playground boots.
+- **No Moosh.** Provisioning uses the playground's own blueprint engine running inside the WASM runtime, not Moosh or any external CLI tool.
+- **URL length.** The scenario blueprint travels inline in the URL, encoded as base64url. Typical scenarios are a few hundred bytes and well within browser URL length limits. For very large setups, consider hosting the blueprint as a file and linking it with `?blueprint-url=` instead (see the URL parameters reference).
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Browser Userscripts" href="browser-userscripts" icon="code">
+    Installing the userscript that detects scenario blocks and shows the tracker button.
+  </Card>
+  <Card title="PR Previews" href="github/pr-previews" icon="github">
+    Automated preview buttons for plugin and theme pull requests.
+  </Card>
+</CardGroup>

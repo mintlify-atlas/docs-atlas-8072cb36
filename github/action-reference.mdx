@@ -1,0 +1,147 @@
+---
+title: "GitHub Action Reference: action-moodle-playground-pr-preview"
+sidebarTitle: "Action Reference"
+description: "Full input and output reference for ateeducacion/action-moodle-playground-pr-preview@v1. Includes all parameters, defaults, and output variables."
+---
+
+The [`ateeducacion/action-moodle-playground-pr-preview`](https://github.com/ateeducacion/action-moodle-playground-pr-preview) action posts an **Open in Moodle Playground** button on pull requests, letting reviewers launch a fully configured Moodle instance in the browser with one click. This page documents every input and output for `@v1`. For task-focused examples and common scenarios, see [PR Previews](/github/pr-previews).
+
+All inputs are optional. `github-token` defaults to the workflow's built-in `GITHUB_TOKEN`. The action infers the PR number from the triggering event when `pr-number` is not set.
+
+## Required permissions
+
+The job must declare these permissions so the action can read repository contents and post or update the preview button on the pull request:
+
+```yaml
+    permissions:
+      contents: read
+      pull-requests: write
+```
+
+## Inputs
+
+### Publishing
+
+<ParamField body="mode" type="string" default="append-to-description">
+  Where to publish the preview button. Accepted values:
+
+  - `append-to-description` — appends the button to the PR description. The action adds or updates a dedicated section without touching the rest of the description.
+  - `comment` — posts the button as a PR comment. The action creates or updates a single comment per PR across runs.
+</ParamField>
+
+<ParamField body="description-template" type="string">
+  Custom template for the PR description section rendered when `mode` is `append-to-description`. Supports `{{VAR}}` interpolation with the output variables (`{{preview-url}}`, `{{blueprint-json}}`, etc.).
+</ParamField>
+
+<ParamField body="comment-template" type="string">
+  Custom template for the comment body rendered when `mode` is `comment`. Supports the same `{{VAR}}` interpolation as `description-template`.
+</ParamField>
+
+<ParamField body="extra-text" type="string">
+  Additional text appended to the rendered output after the template, in both description and comment modes.
+</ParamField>
+
+<ParamField body="restore-button-if-removed" type="boolean" default="true">
+  When `true`, re-adds the preview button if a reviewer manually removed it from the PR description or deleted the comment. Set to `false` to suppress restoration.
+</ParamField>
+
+### Blueprint source
+
+<ParamField body="plugin-path" type="string">
+  Path to the plugin directory relative to the repository root (for example `.` or `plugins/mod_myplugin`). The action generates an `installMoodlePlugin` blueprint step that installs the plugin from the PR branch. Ignored when `blueprint` is set.
+</ParamField>
+
+<ParamField body="blueprint" type="string">
+  Inline blueprint as a JSON string. When set, `plugin-path` is ignored and this JSON is used verbatim as the preview blueprint.
+</ParamField>
+
+<ParamField body="blueprint-file" type="string">
+  Path to a blueprint JSON file within the checked-out repository (requires `actions/checkout` before this action). The action rewrites any `installMoodlePlugin` or `installTheme` GitHub archive URLs that reference this repository to point at the PR branch automatically.
+</ParamField>
+
+<ParamField body="blueprint-url" type="string">
+  URL of a remote blueprint JSON file. The generated preview link uses a `?blueprint-url=` query parameter rather than embedding the blueprint inline, keeping the URL short regardless of blueprint size.
+</ParamField>
+
+<ParamField body="proxy-url" type="string">
+  Base URL of a CORS-enabled GitHub proxy that serves a single repository file. Use together with `blueprint-file` to avoid HTTP 414 errors when the blueprint is too large to inline in the URL.
+</ParamField>
+
+### Moodle version
+
+<ParamField body="moodle-version" type="string" default="5.0">
+  Moodle branch or version string for the preview. Used when `preview-type` is `plugin` or `auto` (resolving to plugin). Examples: `4.5`, `5.0`, `5.1`.
+</ParamField>
+
+<ParamField body="playground-host" type="string" default="https://moodle-playground.com">
+  Base URL of the Moodle Playground deployment the preview link points at. Override this to direct reviewers to a custom deployment, a GitHub Pages host, or a branch preview.
+</ParamField>
+
+### Core overlay
+
+<ParamField body="preview-type" type="string" default="auto">
+  Preview strategy. Accepted values:
+
+  - `auto` — detects whether the repository is a Moodle core repository and selects `core` or `plugin` accordingly.
+  - `plugin` — always treat the PR as a plugin or theme installation.
+  - `core` — overlay the PR's changed files over a prebuilt Moodle base. Does not perform a full Moodle build.
+</ParamField>
+
+<ParamField body="base-version" type="string">
+  Override the Moodle base version used for core overlays. When omitted, the version is inferred from the PR target branch name (for example `MOODLE_404_STABLE` → `4.4`, `MOODLE_500_STABLE` → `5.0`, `main`/`master` → `dev`).
+</ParamField>
+
+<ParamField body="run-upgrade" type="string" default="auto">
+  Whether to run the Moodle database upgrade after applying a core overlay. Accepted values:
+
+  - `auto` — runs the upgrade only when the overlay includes PHP files that are likely to require it.
+  - `on` — always run the upgrade.
+  - `off` — never run the upgrade.
+</ParamField>
+
+<ParamField body="core-root" type="string" default="/www/moodle">
+  Filesystem path to the Moodle root inside the playground's WASM environment. Used as the target directory when applying core overlays.
+</ParamField>
+
+<ParamField body="max-core-files" type="number" default="80">
+  Maximum number of changed core files to include in the overlay. PRs that exceed this limit will have the overlay truncated; the preview boots but may not reflect all changes.
+</ParamField>
+
+<ParamField body="max-core-file-bytes" type="number" default="262144">
+  Maximum size per overlaid core file, in bytes (default 256 KiB). Files larger than this limit are excluded from the overlay silently.
+</ParamField>
+
+<ParamField body="allow-core-binary-files" type="boolean" default="false">
+  When `true`, binary files (images, fonts, compiled assets, etc.) are included in core overlays. By default binary files are skipped to keep the overlay size down and avoid incompatible format issues inside the WASM runtime.
+</ParamField>
+
+<ParamField body="core-pr-mode" type="string" default="files">
+  Core PR overlay mode. Controls how the action retrieves and applies the changed files from the PR. The default `files` mode fetches individual file contents; other values may be introduced in future versions.
+</ParamField>
+
+### Authentication and targeting
+
+<ParamField body="github-token" type="string" default="${{ secrets.GITHUB_TOKEN }}">
+  GitHub token used to post the preview button (description update or comment) and to read PR metadata. Defaults to the workflow's built-in `GITHUB_TOKEN`. Supply a PAT with `repo` scope only when the default token lacks sufficient permissions for your repository configuration.
+</ParamField>
+
+<ParamField body="pr-number" type="number">
+  Pull request number to target. When omitted, the action reads the PR number from the workflow event context. Set this explicitly when triggering the action from a workflow event that does not carry a PR number (for example `workflow_dispatch`).
+</ParamField>
+
+## Outputs
+
+The following outputs are available to subsequent steps in the same job via `steps.<step-id>.outputs.<name>`.
+
+| Output | Description |
+|--------|-------------|
+| `preview-url` | The full **Open in Moodle Playground** URL posted to the PR. |
+| `blueprint-json` | The blueprint JSON string used to generate the preview URL. |
+| `rendered-description` | The complete rendered PR description string, when `mode` is `append-to-description`. |
+| `rendered-comment` | The complete rendered comment body string, when `mode` is `comment`. |
+| `mode` | The publish mode that was actually used (`append-to-description` or `comment`). |
+| `comment-id` | The ID of the created or updated PR comment, when `mode` is `comment`. Useful for linking or further updates from subsequent steps. |
+
+<Note>
+  See the [action repository README](https://github.com/ateeducacion/action-moodle-playground-pr-preview) for the latest input list, changelog, and advanced configuration examples. The reference above reflects `@v1`.
+</Note>

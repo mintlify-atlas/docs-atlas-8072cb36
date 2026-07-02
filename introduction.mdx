@@ -1,0 +1,78 @@
+---
+title: "Moodle Playground: Run Moodle in the Browser via WebAssembly"
+sidebarTitle: "Introduction"
+description: "Moodle Playground runs a full Moodle LMS in the browser using WebAssembly. No server, no install — boot a complete site in seconds, straight from a URL."
+---
+
+Moodle Playground runs a complete [Moodle™](https://moodle.org) LMS entirely inside your browser tab — no server, no PHP install, no database to configure. Powered by [WordPress Playground's](https://github.com/WordPress/wordpress-playground) `@php-wasm/web` runtime, every page load boots a fresh Moodle instance from a pre-built SQLite snapshot held entirely in memory. Nothing is stored on disk, and nothing leaves your browser.
+
+## What problem does it solve?
+
+Standing up even a throwaway Moodle instance normally means provisioning a web server, a database, and a compatible PHP environment — a process that can take 30 minutes before you write a single line of test code. Moodle Playground collapses that to a URL. Because the entire runtime lives in the browser, any collaborator can receive a link and instantly explore the same site state without installing anything.
+
+## Key use cases
+
+- **Demos** — share a fully provisioned Moodle site, pre-loaded with courses, users, and content, via a single URL containing a blueprint.
+- **Plugin testing** — install and exercise a plugin ZIP without touching a real server. The ephemeral nature means no cleanup required after each test run.
+- **Bug reproduction** — attach a blueprint to a bug report so reviewers can reproduce the exact environment in one click.
+- **Pull request review** — boot a PR build directly from GitHub Actions artifacts and validate changes before merging.
+- **Sharing scenarios** — export a blueprint from the side panel and send it to a colleague, who can restore the identical setup on their own machine.
+
+## How it differs from a regular Moodle install
+
+| | Moodle Playground | Regular Moodle |
+|---|---|---|
+| **Server required** | None — runs in WASM | Apache / Nginx + PHP |
+| **Database** | In-memory SQLite (MEMFS) | MySQL / PostgreSQL |
+| **State persistence** | Ephemeral (tab lifetime) | Durable (disk) |
+| **Setup time** | ~3 seconds | 10–30 minutes |
+| **Access** | Any modern browser | Needs a public host or VPN |
+| **Data isolation** | Complete (no data leaves browser) | Standard web security model |
+
+PHP is compiled to WebAssembly via `@php-wasm/web`. Moodle's code is extracted from a prebuilt ZIP bundle into Emscripten's MEMFS at boot, and the database is a single SQLite file held in the same in-memory filesystem — no journaling to disk, no durable storage of any kind.
+
+## Default credentials
+
+<Note>
+  The default administrator account is **username: `admin`** and **password: `password`**. A blueprint can override these via an `installMoodle` step. See the [Blueprints overview](/blueprints/overview) for details.
+</Note>
+
+## Ephemeral by design
+
+<Note>
+  All state lives in memory (Emscripten MEMFS). **Closing the tab destroys everything.** A page reload within the same tab preserves your data for the same blueprint source, but opening the app in a new tab starts completely fresh. The playground is built for exploration, demos, and testing — not for storing real data.
+</Note>
+
+## Explore further
+
+<CardGroup cols={2}>
+  <Card title="Get Started" icon="rocket" href="/getting-started">
+    Open the hosted playground, load a blueprint, or run Moodle Playground locally in three commands.
+  </Card>
+  <Card title="Blueprints" icon="file-code" href="/blueprints/overview">
+    Provision courses, users, plugins, and site config declaratively with a JSON blueprint file.
+  </Card>
+  <Card title="GitHub PR Previews" icon="github" href="/github/pr-previews">
+    Automatically boot a playground from a pull request build and validate changes before merging.
+  </Card>
+  <Card title="URL Parameters" icon="link" href="/url-parameters">
+    Pass `?moodle=`, `?php=`, `?blueprint-url=`, and more to configure a session from the address bar.
+  </Card>
+</CardGroup>
+
+## Sibling Docker runtime: alpine-moodle
+
+For workflows that need a real server — persistent CI pipelines, plugin development with file watchers, or integration tests that write to disk — the sibling project [`alpine-moodle`](https://github.com/erseco/alpine-moodle) provides a Docker-based Moodle environment that can apply a compatible subset of the same `blueprint.json` files during container startup.
+
+This means a single declarative blueprint can drive both runtimes:
+
+- **Moodle Playground** for fast browser validation and one-click sharing.
+- **alpine-moodle** for a fully persistent Docker environment in CI or local development.
+
+See the [Blueprints runtime compatibility notes](/blueprints/runtime) for a portable, Docker-compatible blueprint example.
+
+## License and trademark
+
+Moodle Playground is released under the **GNU General Public License v3.0 (GPL-3.0)**. The full license text is available in the project's [`LICENSE`](https://github.com/ateeducacion/moodle-playground/blob/main/LICENSE) file.
+
+**Trademark notice:** "Moodle™" and the Moodle logo are trademarks or registered trademarks of [Moodle Pty Ltd](https://moodle.com/) and its associated entities, used here for identification and descriptive purposes only. Moodle Playground is an independent, community-maintained open-source project built by [Área de Tecnología Educativa (ATE)](https://www3.gobiernodecanarias.org/medusa/ecoescuela/ate/). It is **not** affiliated with, endorsed by, sponsored by, or approved by Moodle Pty Ltd or Moodle HQ. It runs the open-source Moodle™ software in the browser for demonstration, testing, and educational purposes. See Moodle's [trademark guidelines](https://moodle.com/trademarks/) for details.

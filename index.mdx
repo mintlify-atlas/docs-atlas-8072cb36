@@ -1,20 +1,76 @@
 ---
-title: "Introduction"
-description: "Welcome to your project"
+title: "Moodle Playground: Full Moodle LMS in Your Browser"
+sidebarTitle: "Home"
+description: "Run a complete Moodle site in the browser via WebAssembly — no server, no install, nothing leaves your browser. Boot in seconds, provision with blueprints."
 ---
 
-Write a short description of your product here. What it does, who it's for, and what they can accomplish with it.
+Moodle Playground runs a full [Moodle™](https://moodle.org) LMS entirely inside your browser using WebAssembly. Powered by WordPress Playground's `@php-wasm/web` runtime, it boots a fresh Moodle instance with a pre-built SQLite snapshot in roughly three seconds — no server, no backend, no data ever leaving your machine.
 
-<Tip>
-  Ready to make this your own? Start by editing this page. Update your `docs.json` file to customize your site. Then fill out the [Quickstart](/quickstart) page.
-</Tip>
+Use it to demo courses, validate plugins, reproduce bugs, share reproducible scenarios, or preview pull requests — all from a single URL.
 
-<Card title="Quickstart" icon="rocket" href="/quickstart">
-  This card links to the quickstart page in your project.
-</Card>
-<Card title="Components" icon="puzzle-piece" href="https://mintlify.com/docs/components">
-  Add cards, callouts, steps, tabs, and more to design and structure your pages.
-</Card>
-<Card title="Settings" icon="gear" href="https://mintlify.com/docs/organize/settings">
-  Set your site name, branding, and navigation in the `docs.json` file.
-</Card>
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/getting-started">
+    Open the live demo or run locally in three commands. No prerequisites for the hosted version.
+  </Card>
+  <Card title="Blueprints" icon="file-code" href="/blueprints/overview">
+    Provision courses, users, plugins, and themes declaratively at boot with a JSON blueprint.
+  </Card>
+  <Card title="PR Previews" icon="github" href="/github/pr-previews">
+    Automatically post an "Open in Moodle Playground" button on every plugin pull request.
+  </Card>
+  <Card title="URL Parameters" icon="link" href="/url-parameters">
+    Select Moodle and PHP versions, load blueprints, and enable debug mode from the URL.
+  </Card>
+</CardGroup>
+
+## How it works
+
+The shell UI hosts a scoped iframe that registers a Service Worker. The Service Worker intercepts every request and forwards it to a PHP-WASM worker, which runs Moodle against an in-memory SQLite database. Everything lives in the JavaScript heap — closing the tab destroys all state.
+
+```text
+index.html          Shell UI (toolbar, address bar, log panel)
+  └─ remote.html    Runtime host — registers the Service Worker
+       ├─ sw.js     Intercepts requests → routes to PHP worker
+       └─ php-worker.js
+            └─ @php-wasm/web (WebAssembly PHP 8.x)
+                 ├─ Moodle core in MEMFS   (extracted from ZIP bundle)
+                 └─ In-memory state        (SQLite + moodledata in MEMFS)
+```
+
+<Note>
+  Default credentials: username `admin`, password `password`. Override them via an `installMoodle` step in a blueprint.
+</Note>
+
+## Start in 30 seconds
+
+<Steps>
+  <Step title="Open the live demo">
+    Go to [moodle-playground.com](https://moodle-playground.com) — no install needed. Moodle boots in a few seconds.
+  </Step>
+  <Step title="Log in">
+    Use the default admin account: **username** `admin`, **password** `password`.
+  </Step>
+  <Step title="Load a blueprint">
+    Add `?blueprint-url=/assets/blueprints/examples/course-with-content.blueprint.json` to the URL to boot with a pre-built course, or import your own `.json` from the Blueprint panel.
+  </Step>
+  <Step title="Explore or share">
+    Navigate Moodle as normal. Copy the URL (with `?blueprint-url=` or `?blueprint=`) to share an exact reproducible setup with anyone.
+  </Step>
+</Steps>
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Multiple Moodle Versions" icon="code-branch">
+    Switch between Moodle 4.4, 4.5, 5.0, 5.1, 5.2, and `main` — and PHP 8.1–8.5 — from the side panel or via URL parameters.
+  </Card>
+  <Card title="Plugin & Theme Install" icon="puzzle-piece">
+    Install any Moodle plugin or theme from a GitHub archive ZIP URL with a single blueprint step.
+  </Card>
+  <Card title="Crash Recovery" icon="shield-check">
+    If the WASM runtime crashes (OOM, FD exhaustion), the worker snapshots the DB, reboots, and restores state automatically.
+  </Card>
+  <Card title="Docker-compatible Blueprints" icon="docker">
+    A portable blueprint subset also runs in the sibling [alpine-moodle](https://github.com/erseco/alpine-moodle) Docker runtime.
+  </Card>
+</CardGroup>

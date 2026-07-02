@@ -1,0 +1,82 @@
+{
+  "projectType": "saas",
+  "projectName": "Moodle Playground",
+  "projectDescription": "Run a full Moodle LMS entirely in the browser via WebAssembly — no server, no install, fully ephemeral.",
+  "theme": "palm",
+  "primaryColor": "#E35910",
+  "lightColor": "#F97316",
+  "darkColor": "#C2420C",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "getting-started",
+              "usage"
+            ]
+          },
+          {
+            "group": "Blueprints",
+            "pages": [
+              "blueprints/overview",
+              "blueprints/reference",
+              "blueprints/examples",
+              "blueprints/runtime"
+            ]
+          },
+          {
+            "group": "Integrations",
+            "pages": [
+              "github/pr-previews",
+              "github/action-reference",
+              "browser-userscripts",
+              "tracker-scenarios"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "url-parameters",
+              "architecture",
+              "local-development",
+              "troubleshooting"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Full Moodle LMS running in the browser via WebAssembly (php-wasm)",
+    "Zero server required — no install, no backend, nothing leaves the browser",
+    "Blueprint system for declarative provisioning (courses, users, plugins, themes) at boot",
+    "Multiple Moodle versions (4.4–5.2, main) and PHP versions (8.1–8.5) selectable at runtime",
+    "GitHub Action for automatic PR preview buttons on plugin and Moodle core pull requests",
+    "Browser userscript for one-click Moodle core PR previews from GitHub and Moodle Tracker",
+    "Crash recovery: automatic WASM runtime restart with DB snapshot restore on OOM",
+    "Docker-compatible blueprint subset compatible with the sibling alpine-moodle runtime",
+    "In-memory SQLite database via patched PDO driver — ephemeral by design",
+    "Service Worker routing layer that intercepts all requests and forwards them to the PHP-WASM worker"
+  ],
+  "publicApiSurface": [
+    "Blueprint JSON format (steps, constants, resources, preferredVersions, landingPage, runtime, phpConstants)",
+    "Blueprint steps: installMoodle, login, setAdminAccount, setConfig, setConfigs, setTheme, setLandingPage",
+    "Blueprint steps: createUser, createUsers, createCategory, createCategories",
+    "Blueprint steps: createCourse, createCourses, createSection, createSections",
+    "Blueprint steps: enrolUser, enrolUsers, addModule",
+    "Blueprint steps: installMoodlePlugin, installTheme, installLanguagePack",
+    "Blueprint steps: createRole, createRoles, importRolePreset, importRoles",
+    "Blueprint steps: createScale, createScales, createCohort, createCohorts",
+    "Blueprint steps: restoreCourse, setConfigFile, setConfigFiles",
+    "Blueprint steps: mkdir, rmdir, writeFile, writeFiles, copyFile, moveFile, deleteFile, deleteFiles, unzip",
+    "Blueprint steps: runPhpCode, runPhpScript, request, applyPrOverlay, purgeMoodleCaches",
+    "URL parameters: moodle, php, blueprint, blueprint-url, debug, profile, addonProxyUrl, phpCorsProxyUrl, repo, owner, branch/ref",
+    "GitHub Action: ateeducacion/action-moodle-playground-pr-preview@v1 (inputs: plugin-path, blueprint, blueprint-file, blueprint-url, proxy-url, moodle-version, preview-type, mode, github-token, and more)",
+    "Browser userscript: moodle-playground-pr-button.user.js (PLAYGROUND_HOST, RUN_UPGRADE, STARTER_SCENARIO constants)",
+    "Tracker scenario format: moodle-playground fenced code block or 'Moodle Playground Scenario' marker phrase"
+  ]
+}

@@ -1,0 +1,182 @@
+---
+title: "Runtime, Versions, and Docker Compatibility"
+sidebarTitle: "Runtime"
+description: "Choose Moodle and PHP versions for Moodle Playground, understand the browser vs Docker runtime difference, and write blueprints portable across both."
+---
+
+Moodle Playground runs in two distinct runtimes. The **browser/WASM runtime** boots a fresh, in-memory Moodle entirely inside your browser tab — nothing is stored on disk and everything resets when the tab closes. The same `blueprint.json` file can also be applied to [`alpine-moodle`](https://github.com/erseco/alpine-moodle), a sibling Docker image that runs a real PHP + Nginx + SQLite Moodle server in a container. Understanding which runtime to use — and how to write blueprints portable across both — is the focus of this page.
+
+## Pick a Moodle and PHP version
+
+There are two ways to select which Moodle and PHP versions to boot. URL parameters are best for a quick one-off override; the `preferredVersions` blueprint field makes the choice travel with the blueprint wherever it is shared.
+
+<Tabs>
+  <Tab title="URL parameters">
+    Append `moodle=` and `php=` to any Moodle Playground URL:
+
+    ```text
+    https://moodle-playground.com/?moodle=4.5&php=8.3
+    ```
+
+    URL parameters take precedence over `preferredVersions` in the blueprint. See [URL parameters](/url-parameters) for the full list.
+  </Tab>
+  <Tab title="Blueprint field">
+    Add `preferredVersions` as a top-level field in your blueprint. The choice travels with the file wherever it is shared:
+
+    ```json
+    {
+      "preferredVersions": { "php": "8.3", "moodle": "5.0" },
+      "steps": []
+    }
+    ```
+
+    This is the recommended approach for blueprints you intend to share or commit to version control.
+  </Tab>
+</Tabs>
+
+### Supported versions
+
+| Component | Available versions | Default |
+|---|---|---|
+| Moodle branch | `4.4`, `4.5`, `5.0`, `5.1`, `5.2`, `main` (development) | `5.0` |
+| PHP | `8.1`, `8.2`, `8.3`, `8.4`, `8.5` | `8.3` (varies by Moodle branch) |
+
+<Note>
+  The PHP version must be compatible with the chosen Moodle branch. If the combination is incompatible, the runtime automatically falls back to a supported PHP version for that branch. `preferredVersions` is **advisory** — the Docker image (`alpine-moodle`) pins its own Moodle and PHP versions at build time and may ignore the field.
+</Note>
+
+## Browser runtime vs Docker runtime
+
+The two runtimes are complementary tools for different tasks.
+
+| Use case | Recommended runtime |
+|---|---|
+| Share a demo with no server setup | Moodle Playground (browser) |
+| Reproduce a bug quickly in the browser | Moodle Playground (browser) |
+| Validate blueprint syntax and scenario flow | Moodle Playground (browser) |
+| Create a public link for reviewers | Moodle Playground (browser) |
+| Develop a plugin with a mounted local codebase | alpine-moodle (Docker) |
+| Run CI against a real PHP/Moodle container | alpine-moodle (Docker) |
+| Test persistence, cron jobs, mail, or database behavior | alpine-moodle (Docker) |
+| Restore large `.mbz` backups or work with heavy datasets | alpine-moodle (Docker) |
+
+<Warning>
+  The browser runtime is fully ephemeral. All data lives in memory and is lost when the tab closes. It is not suitable for storing real course data. Use the Docker runtime when you need persistence, background cron, or outbound services.
+</Warning>
+
+## Writing portable blueprints
+
+To keep a blueprint working correctly in **both** runtimes, follow these guidelines:
+
+- **Use explicit, ordered steps.** Rely on the sequential step model rather than runtime-specific shortcuts.
+- **Use stable identifiers.** Reference entities by the values that steps create: course `shortname`, category `name`, user `username`. Avoid IDs that may differ between environments.
+- **Avoid filesystem and code-execution steps.** `runPhpCode`, `runPhpScript`, `writeFile`, `unzip`, and related steps are disabled by default in the Docker runtime. Move any such logic into a plugin or a startup script instead.
+- **Keep remote resources small and stable.** Large ZIP downloads can exhaust WASM memory in the browser. For reproducibility, prefer resources at stable URLs (tagged releases rather than branch HEADs).
+- **Treat `landingPage` as a hint.** The Docker runtime may not navigate a browser automatically after boot.
+- **Treat `preferredVersions` as advisory.** The Docker image builds with a fixed version; your field is a best-effort preference only.
+
+## Step compatibility
+
+The browser runtime supports every step in the [Reference](/blueprints/reference). The `alpine-moodle` column below reflects its current, **experimental** implementation — always confirm against its [blueprint documentation](https://erseco.github.io/alpine-moodle/blueprints/).
+
+| Step group | Moodle Playground | alpine-moodle |
+|---|---|---|
+| `setConfig` / `setConfigs` / `setTheme` | supported | supported |
+| `createCategory` / `createCourse` | supported | supported |
+| `createUser` / `createUsers` / `enrolUser` | supported | supported |
+| `installMoodlePlugin` / `installTheme` | supported | supported |
+| `installMoodle` | supported | handled by container startup |
+| `login` | supported | no-op (no browser auto-login) |
+| `restoreCourse` / `addModule` | supported | planned |
+| `runPhpCode` / `runPhpScript` / `writeFile` / `unzip` | supported | disabled by default |
+
+Steps not listed above — batch variants, `setConfigFile(s)`, `installLanguagePack`, role/scale/cohort steps, filesystem helpers, `request`, `applyPrOverlay` — are fully supported in Moodle Playground. In `alpine-moodle` they are either planned or disabled, and they fail clearly rather than being silently skipped.
+
+## Full portable blueprint example
+
+This blueprint avoids all browser-only and code-execution steps. It runs identically in Moodle Playground and `alpine-moodle`. A copy lives at `assets/blueprints/examples/docker-compatible.blueprint.json`.
+
+```json
+{
+  "$schema": "../blueprint-schema.json",
+  "preferredVersions": {
+    "php": "8.3",
+    "moodle": "5.0"
+  },
+  "landingPage": "/course/index.php",
+  "steps": [
+    {
+      "step": "setConfig",
+      "name": "debug",
+      "value": 32767
+    },
+    {
+      "step": "createCategory",
+      "name": "Blueprint demo"
+    },
+    {
+      "step": "createCourse",
+      "fullname": "Blueprint demo course",
+      "shortname": "BLUEPRINT101",
+      "category": "Blueprint demo"
+    },
+    {
+      "step": "createUser",
+      "username": "student1",
+      "password": "ChangeMe123!",
+      "email": "student1@example.com",
+      "firstname": "Student",
+      "lastname": "One"
+    },
+    {
+      "step": "enrolUser",
+      "username": "student1",
+      "course": "BLUEPRINT101",
+      "role": "student"
+    }
+  ]
+}
+```
+
+Open it in the hosted playground:
+
+```text
+https://moodle-playground.com/?blueprint-url=/assets/blueprints/examples/docker-compatible.blueprint.json
+```
+
+## Running the same blueprint in Docker
+
+Mount the blueprint file and point the `MOODLE_BLUEPRINT` environment variable at it:
+
+```yaml
+services:
+  moodle:
+    image: erseco/alpine-moodle:latest
+    ports:
+      - "8080:8080"
+    environment:
+      MOODLE_DATABASE_TYPE: sqlite3
+      MOODLE_USERNAME: admin
+      MOODLE_PASSWORD: ChangeMe123!
+      MOODLE_EMAIL: admin@example.com
+      MOODLE_SITENAME: "Blueprint Demo"
+      MOODLE_BLUEPRINT: /blueprints/demo.blueprint.json
+    volumes:
+      - moodledata:/var/www/moodledata
+      - ./demo.blueprint.json:/blueprints/demo.blueprint.json:ro
+
+volumes:
+  moodledata:
+```
+
+Save this as `docker-compose.yml` alongside your blueprint, then run:
+
+```bash
+docker compose up
+```
+
+Moodle will be available at `http://localhost:8080` after the container initialises and the blueprint steps complete.
+
+<Tip>
+  For the complete list of step types and field options, see the [Blueprint Reference](/blueprints/reference). For more ready-made blueprints to use as a starting point, see the [Examples](/blueprints/examples).
+</Tip>

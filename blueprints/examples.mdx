@@ -1,0 +1,227 @@
+---
+title: "Blueprint Examples: Ready-to-Use Moodle Configurations"
+sidebarTitle: "Examples"
+description: "Gallery of ready-to-use Moodle Playground blueprints: minimal setup, courses with content, multi-user, plugin install, themes, roles, cohorts, and PR overlays."
+---
+
+A gallery of ready-to-use blueprints you can open directly in the hosted playground or copy and adapt for your own use. Every blueprint is a `.json` file in the [`assets/blueprints/examples/`](https://github.com/ateeducacion/moodle-playground/tree/main/assets/blueprints/examples) directory of the Moodle Playground repository. New to blueprints? Start with the [Overview](/blueprints/overview). For every step type and field, see the [Reference](/blueprints/reference).
+
+## Example gallery
+
+| Example | What it provisions | Key steps | Launch |
+|---|---|---|---|
+| [minimal](https://github.com/ateeducacion/moodle-playground/blob/main/assets/blueprints/examples/minimal.blueprint.json) | Bare install, admin login, dashboard landing | `installMoodle`, `login` | [Open ↗](https://moodle-playground.com/?blueprint-url=/assets/blueprints/examples/minimal.blueprint.json) |
+| [course-with-content](https://github.com/ateeducacion/moodle-playground/blob/main/assets/blueprints/examples/course-with-content.blueprint.json) | One course with a welcome label and an assignment | `createCategory`, `createCourse`, `addModule` | [Open ↗](https://moodle-playground.com/?blueprint-url=/assets/blueprints/examples/course-with-content.blueprint.json) |
+| [multi-user](https://github.com/ateeducacion/moodle-playground/blob/main/assets/blueprints/examples/multi-user.blueprint.json) | One teacher + two students enrolled by role | `createUsers`, `enrolUsers` | [Open ↗](https://moodle-playground.com/?blueprint-url=/assets/blueprints/examples/multi-user.blueprint.json) |
+| [classroom-ready](https://github.com/ateeducacion/moodle-playground/blob/main/assets/blueprints/examples/classroom-ready.blueprint.json) | 1 teacher + 3 students, 4-section course, mixed content | `createUsers`, `createCourse`, `enrolUsers`, `addModule` | [Open ↗](https://moodle-playground.com/?blueprint-url=/assets/blueprints/examples/classroom-ready.blueprint.json) |
+| [plugin-showcase](https://github.com/ateeducacion/moodle-playground/blob/main/assets/blueprints/examples/plugin-showcase.blueprint.json) | Installs `mod_board` (Kanban board activity) + demo course | `installMoodlePlugin`, `createCourse`, `addModule` | [Open ↗](https://moodle-playground.com/?blueprint-url=/assets/blueprints/examples/plugin-showcase.blueprint.json) |
+| [plugin-exeweb](https://github.com/ateeducacion/moodle-playground/blob/main/assets/blueprints/examples/plugin-exeweb.blueprint.json) | Installs eXeLearning `mod_exeweb` + demo course | `installMoodlePlugin`, `createCourse`, `addModule` | [Open ↗](https://moodle-playground.com/?blueprint-url=/assets/blueprints/examples/plugin-exeweb.blueprint.json) |
+| [roles-scales-cohorts](https://github.com/ateeducacion/moodle-playground/blob/main/assets/blueprints/examples/roles-scales-cohorts.blueprint.json) | XML role import, JSON role definition, custom scales, a cohort with members | `importRoles`, `createRole`, `createScale`, `createCohort` | [Open ↗](https://moodle-playground.com/?blueprint-url=/assets/blueprints/examples/roles-scales-cohorts.blueprint.json) |
+| [visual-theme-moove](https://github.com/ateeducacion/moodle-playground/blob/main/assets/blueprints/examples/visual-theme-moove.blueprint.json) | Installs and activates the Moove theme | `installTheme`, `setTheme`, `createCourse` | [Open ↗](https://moodle-playground.com/?blueprint-url=/assets/blueprints/examples/visual-theme-moove.blueprint.json) |
+| [docker-compatible](https://github.com/ateeducacion/moodle-playground/blob/main/assets/blueprints/examples/docker-compatible.blueprint.json) | Portable subset that also runs in alpine-moodle | `setConfig`, `createCourse`, `createUser`, `enrolUser` | [Open ↗](https://moodle-playground.com/?blueprint-url=/assets/blueprints/examples/docker-compatible.blueprint.json) |
+| [pr-overlay](https://github.com/ateeducacion/moodle-playground/blob/main/assets/blueprints/examples/pr-overlay.blueprint.json) | Moodle core PR preview via live filesystem overlay | `applyPrOverlay`, `login` | [Open ↗](https://moodle-playground.com/?blueprint-url=/assets/blueprints/examples/pr-overlay.blueprint.json) |
+| [tracker-starter](https://github.com/ateeducacion/moodle-playground/blob/main/assets/blueprints/examples/tracker-starter.blueprint.json) | Tracker issue reproduction site: course, teacher + student, forum/assignment/quiz/page | `createCourse`, `createUsers`, `enrolUsers`, `addModule` | [Open ↗](https://moodle-playground.com/?blueprint-url=/assets/blueprints/examples/tracker-starter.blueprint.json) |
+
+<Tip>
+  Reloading the **same** blueprint URL keeps your data for that tab session — changes you make inside Moodle are preserved on refresh. Loading a *different* blueprint, or clicking **Reset Playground**, discards all state and starts fresh. Closing the tab destroys everything; the browser runtime is fully ephemeral.
+</Tip>
+
+## Copy-paste blueprints
+
+These are reproduced verbatim from the source files. Paste any of them into the Blueprint panel, save as `.json` and load via `?blueprint-url=`, or share the **Open** links above.
+
+### minimal
+
+The smallest useful blueprint: install Moodle, log in as admin, and land on the dashboard. Use this as the starting point for any new blueprint.
+
+```json
+{
+  "$schema": "../blueprint-schema.json",
+  "landingPage": "/my/",
+  "steps": [
+    {
+      "step": "installMoodle",
+      "options": {
+        "adminUser": "admin",
+        "adminPass": "password",
+        "adminEmail": "admin@example.com",
+        "siteName": "My Moodle"
+      }
+    },
+    {
+      "step": "login",
+      "username": "admin"
+    }
+  ]
+}
+```
+
+### course-with-content
+
+One category (`Science`), one course (`Introduction to Physics`), a welcome label, and an assignment. Demonstrates `{{KEY}}` constants — define admin credentials once and reuse them across steps.
+
+```json
+{
+  "$schema": "../blueprint-schema.json",
+  "landingPage": "/my/",
+  "constants": {
+    "ADMIN_USER": "admin",
+    "ADMIN_PASS": "password",
+    "ADMIN_EMAIL": "admin@example.com"
+  },
+  "steps": [
+    {
+      "step": "installMoodle",
+      "options": {
+        "adminUser": "{{ADMIN_USER}}",
+        "adminPass": "{{ADMIN_PASS}}",
+        "adminEmail": "{{ADMIN_EMAIL}}",
+        "siteName": "Course Demo"
+      }
+    },
+    {
+      "step": "login",
+      "username": "{{ADMIN_USER}}"
+    },
+    {
+      "step": "createCategory",
+      "name": "Science"
+    },
+    {
+      "step": "createCourse",
+      "fullname": "Introduction to Physics",
+      "shortname": "PHYS101",
+      "category": "Science",
+      "summary": "A starter course covering basic physics concepts."
+    },
+    {
+      "step": "addModule",
+      "module": "label",
+      "course": "PHYS101",
+      "section": 1,
+      "name": "Welcome",
+      "intro": "<h3>Welcome to Physics 101!</h3><p>This course covers the fundamentals of physics.</p>"
+    },
+    {
+      "step": "addModule",
+      "module": "assign",
+      "course": "PHYS101",
+      "section": 1,
+      "name": "First Assignment",
+      "intro": "Submit a short essay on Newton's laws of motion."
+    },
+    {
+      "step": "setLandingPage",
+      "path": "/my/"
+    }
+  ]
+}
+```
+
+### plugin-showcase
+
+Installs the third-party `mod_board` Kanban plugin from a GitHub archive ZIP, creates a demo course, and adds a label activity. Shows `preferredVersions` pinning and explicit `pluginType` / `pluginName` overrides.
+
+```json
+{
+  "$schema": "../blueprint-schema.json",
+  "landingPage": "/my/",
+  "preferredVersions": { "php": "8.3", "moodle": "5.0" },
+  "constants": {
+    "ADMIN_USER": "admin",
+    "ADMIN_PASS": "password",
+    "ADMIN_EMAIL": "admin@example.com"
+  },
+  "steps": [
+    {
+      "step": "installMoodle",
+      "options": {
+        "adminUser": "{{ADMIN_USER}}",
+        "adminPass": "{{ADMIN_PASS}}",
+        "adminEmail": "{{ADMIN_EMAIL}}",
+        "siteName": "Plugin Showcase"
+      }
+    },
+    {
+      "step": "login",
+      "username": "{{ADMIN_USER}}"
+    },
+    {
+      "step": "installMoodlePlugin",
+      "url": "https://github.com/bynfrancesco/moodle-mod_board/archive/refs/heads/main.zip",
+      "pluginType": "mod",
+      "pluginName": "board"
+    },
+    {
+      "step": "createCourse",
+      "fullname": "Plugin Showcase Course",
+      "shortname": "PLUGINS",
+      "summary": "A course that demonstrates third-party Moodle plugins."
+    },
+    {
+      "step": "addModule",
+      "module": "label",
+      "course": "PLUGINS",
+      "section": 1,
+      "name": "Board Plugin",
+      "intro": "<h3>Board Activity</h3><p>The Board plugin provides a Kanban-style collaborative board within Moodle courses.</p>"
+    },
+    {
+      "step": "setLandingPage",
+      "path": "/my/"
+    }
+  ]
+}
+```
+
+<Note>
+  Plugin and theme downloads fetch a GitHub archive ZIP at boot time. In Firefox and Safari this may require a CORS proxy; Chromium works best. See `addonProxyUrl` / `phpCorsProxyUrl` in [URL parameters](/url-parameters) and the [`installMoodlePlugin`](/blueprints/reference#installmoodleplugin) reference.
+</Note>
+
+### docker-compatible
+
+A portable blueprint that avoids browser-only steps (`login`, `runPhpCode`, `writeFile`, etc.) so it runs identically in Moodle Playground and in [`alpine-moodle`](https://github.com/erseco/alpine-moodle). It pins `preferredVersions`, uses `setConfig` for debug mode, and creates a category, course, user, and enrolment.
+
+```json
+{
+  "$schema": "../blueprint-schema.json",
+  "preferredVersions": {
+    "php": "8.3",
+    "moodle": "5.0"
+  },
+  "landingPage": "/course/index.php",
+  "steps": [
+    {
+      "step": "setConfig",
+      "name": "debug",
+      "value": 32767
+    },
+    {
+      "step": "createCategory",
+      "name": "Blueprint demo"
+    },
+    {
+      "step": "createCourse",
+      "fullname": "Blueprint demo course",
+      "shortname": "BLUEPRINT101",
+      "category": "Blueprint demo"
+    },
+    {
+      "step": "createUser",
+      "username": "student1",
+      "password": "ChangeMe123!",
+      "email": "student1@example.com",
+      "firstname": "Student",
+      "lastname": "One"
+    },
+    {
+      "step": "enrolUser",
+      "username": "student1",
+      "course": "BLUEPRINT101",
+      "role": "student"
+    }
+  ]
+}
+```
+
+See the [Runtime & Versions](/blueprints/runtime) page for how to run this exact blueprint in a Docker container using `alpine-moodle`.

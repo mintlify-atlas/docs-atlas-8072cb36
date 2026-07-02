@@ -1,0 +1,342 @@
+---
+title: "Troubleshooting Moodle Playground Issues"
+sidebarTitle: "Troubleshooting"
+description: "Debug Moodle Playground runtime errors, SQLite driver bugs, crash symptoms, networking issues, and language pack failures with this troubleshooting guide."
+---
+
+Most Moodle Playground problems fall into one of three categories: PHP/bootstrap errors that are hidden by default, SQLite driver incompatibilities with a Moodle version, or networking constraints from running inside a browser sandbox. This guide covers the most common symptoms and how to resolve them.
+
+## Quick checks
+
+### Enable debug mode
+
+Add `?debug=true` to any Moodle Playground URL to force Moodle developer debug mode and enable `display_errors` for the booted session:
+
+```text
+http://localhost:8080/?debug=true
+```
+
+Accepted values: `true`, `developer`, `normal`, `minimal`, `0`.
+
+### Syntax check key files
+
+Run these before suspecting a runtime bug — a syntax error in any of these files causes silent failures:
+
+```bash
+node --check sw.js
+node --check php-worker.js
+node --check src/runtime/bootstrap.js
+node --check src/runtime/php-loader.js
+node --check src/remote/main.js
+node --check lib/moodle-loader.js
+php -l patches/shared/lib/dml/sqlite3_pdo_moodle_database.php
+php -l patches/shared/lib/ddl/sqlite_sql_generator.php
+php -l patches/shared/lib/classes/encryption.php
+```
+
+Rebuild the worker and bundle after any source change:
+
+```bash
+npm run build-worker
+npm run bundle
+```
+
+## First place to look
+
+If the browser is failing during install or first load, inspect these in order:
+
+1. Browser console — JavaScript errors and stack traces
+2. Network requests for `/playground/main/php83-cgi/…` — check for 404s, failed fetches, or unexpected redirects
+3. Shell progress log — shows the last bootstrap stage reached
+4. **PHP Info** panel in the shell toolbar — confirms which PHP version and extensions are loaded
+5. Rerun with `?debug=true` if the page is hiding PHP/Moodle errors
+
+The most useful files for runtime debugging:
+
+- `src/runtime/bootstrap.js`
+- `src/remote/main.js`
+- `sw.js`
+- `src/runtime/php-compat.js`
+- `lib/moodle-loader.js`
+
+## Symptom reference
+
+<AccordionGroup>
+  <Accordion title="TypeError: resolved is not a function">
+    **Likely cause:**
+
+    - Malformed or unreadable `install.xml`
+    - A regression in the XML/runtime path outside the current common patch set
+
+    **What to do:** If this happens during schema load, inspect the `install.xml` file first and re-run the XMLDB load checks against the current unpatched Moodle sources.
+  </Accordion>
+
+  <Accordion title="Fatal in sqlite_sql_generator">
+    **Examples:**
+
+    - Signature mismatch with `sql_generator`
+    - Missing `getCreateTempTableSQL`
+
+    **File:** `patches/shared/lib/ddl/sqlite_sql_generator.php`
+
+    **Note:** This is a Moodle-core compatibility problem, not a WASM routing problem. The fix must be applied both to the upstream fork and to the local patch copy in this repo (see [SQLite driver bugs](#sqlite-driver-bugs) below).
+  </Accordion>
+
+  <Accordion title="Fatal in sqlite3_pdo_moodle_database">
+    **Examples:**
+
+    - `is_temptable() on null`
+    - Driver returns `false` when Moodle 5 expects `[]`
+    - Deprecated `reset()` on object
+
+    **Files:**
+
+    - `patches/shared/lib/dml/sqlite3_pdo_moodle_database.php`
+    - Runtime override in `src/runtime/bootstrap.js`
+
+    **Note:** Apply fixes in both the upstream fork and the local patch copy. See [SQLite driver bugs](#sqlite-driver-bugs).
+  </Accordion>
+
+  <Accordion title="Fatal in admin/plugins.php: Failed opening required …/analytics/tests/classes/mlbackend_helper_trait.php">
+    **Likely cause:** The core bundle excludes every `*/tests/*` directory to halve the download size. Some Moodle 5.0+ **production** code `require_once()`s a file that lives under `tests/`. Specifically, `lib/mlbackend/python/classes/processor.php` requires the analytics test trait `core_analytics\tests\mlbackend_helper_trait`. Building the admin tree instantiates every `mlbackend` plugin, so loading `/admin/plugins.php` or any analytics admin page fatals on the excluded file.
+
+    **Files:**
+
+    - `scripts/patch-moodle-source.sh` — drops the test-trait `require_once`/`use` and inlines the one method the class actually uses
+    - `docs/decisions/0014-production-require-of-tests-files-patch.md`
+
+    <Note>
+      `make up-local` does **not** reproduce this — it serves the full checkout with `tests/` present. Reproduce and verify only against a real bundle (`make bundle`). If a different Moodle branch fatals on another `…/tests/…` require, generalize the fix into a build-time detector (see ADR 0014 Review Criteria).
+    </Note>
+  </Accordion>
+
+  <Accordion title="Invalid cache store in config warnings everywhere">
+    **Likely cause:** Moodle cache config paths still execute even though caching is intentionally disabled for the prototype.
+
+    **Files:**
+
+    - `src/runtime/config-template.js`
+    - `lib/config-template.js`
+    - Runtime override in `src/runtime/bootstrap.js`
+
+    **Note:** These warnings are suppressed at runtime when `CACHE_DISABLE_ALL` is active. If they become fatal again, inspect `cache/classes/config.php` and `cache/classes/cache.php`.
+  </Accordion>
+
+  <Accordion title="Undefined constant &quot;core\\SODIUM_CRYPTO_SECRETBOX_NONCEBYTES&quot;">
+    **Likely cause:** The current WASM runtime does not ship the `sodium` extension. Some Moodle paths assume sodium-first encryption unless the local fallback patch is active.
+
+    **Files:**
+
+    - `patches/shared/lib/classes/encryption.php`
+    - Runtime override in `src/runtime/bootstrap.js`
+    - `src/runtime/config-template.js`
+    - `lib/config-template.js`
+
+    **Current workaround:**
+
+    - `rememberusername` is disabled by default
+    - `core\encryption` falls back to OpenSSL in this prototype
+    - `admin/environment.xml` is downgraded at runtime so upgrades are not blocked by the missing extension
+  </Accordion>
+
+  <Accordion title="Undefined array key &quot;HTTP_USER_AGENT&quot;">
+    **Likely cause:** The PHP request handler did not expose request headers as standard `HTTP_*` server variables.
+
+    **File:** `src/runtime/php-compat.js`
+  </Accordion>
+
+  <Accordion title="No input file specified (styles_debug.php, javascript.php, yui_combo.php)">
+    **Likely cause:** A scoped URL or request rewriting mismatch between the Service Worker and the PHP request handler.
+
+    **Files:**
+
+    - `sw.js`
+    - `src/runtime/php-compat.js`
+    - `src/runtime/php-loader.js`
+
+    **What to inspect:**
+
+    1. The request URL as seen by the Service Worker
+    2. The forwarded request URL sent to the PHP worker
+    3. The computed `SCRIPT_NAME` and `SCRIPT_FILENAME` in the PHP request handler
+  </Accordion>
+
+  <Accordion title="ERR_TOO_MANY_REDIRECTS or &quot;Incorrect access detected&quot;">
+    **Likely cause:**
+
+    - `$CFG->wwwroot` built from the wrong base URL
+    - Scoped redirects losing query parameters
+
+    **Files:**
+
+    - `src/runtime/bootstrap.js`
+    - `php-worker.js`
+    - `sw.js`
+    - `src/shared/storage.js`
+  </Accordion>
+
+  <Accordion title="Timed out while waiting for php-worker readiness">
+    **Likely cause:**
+
+    - A bootstrap JavaScript error before `worker-ready` was emitted
+    - A stale service worker or stale scope
+    - Bundle load failure
+
+    **Files:**
+
+    - `php-worker.js`
+    - `src/remote/main.js`
+    - `src/runtime/bootstrap.js`
+
+    **Immediate actions:**
+
+    1. Hard-reload the page (Ctrl+Shift+R / Cmd+Shift+R)
+    2. Click **Reset** in the shell toolbar
+    3. Check the shell log for the last bootstrap step reached
+    4. Retry with `?debug=true` to surface hidden PHP/bootstrap errors
+  </Accordion>
+
+  <Accordion title="Outbound HTTPS from PHP behaves differently depending on the target">
+    **Likely cause:** `tcpOverFetch` is active, but not every HTTPS destination behaves identically. The browser-side fetch performed by the runtime does not trust self-signed local certificates, so local HTTPS servers fail before fallback.
+
+    **What is supported:**
+
+    - Direct PHP requests to trusted external HTTPS origins, including CORS-open URLs like `raw.githubusercontent.com`
+    - Direct PHP requests to the tested eXeLearning GitHub feed and release ZIP URLs
+    - `phpCorsProxyUrl` as the browser-side fallback for PHP networking
+    - `MOODLE_PLAYGROUND_PROXY_URL` as an explicit same-origin PHP networking endpoint when a plugin prefers a stable playground-only proxy contract
+
+    **What still fails:**
+
+    - Direct HTTPS to a self-signed local HTTPS server — the browser does not trust that certificate
+
+    **Files:**
+
+    - `src/runtime/php-loader.js`
+    - `sw.js`
+    - `src/runtime/config-template.js`
+    - `tests/e2e/php-networking.spec.mjs`
+  </Accordion>
+
+  <Accordion title="Site is still in English after setting the language (or langimport fails with CORS)">
+    **Likely cause:** Moodle bundles only English. Other languages are separate packs that must be downloaded into `dataroot/lang/<code>`. Setting `lang`/`locale` alone only changes the preference, it does not install the pack.
+
+    If `admin/tool/langimport` fails with a CORS error on `download.moodle.org/langpack/<v>/languages.md5`, the proxy is not authorizing the langpack index.
+
+    **What works:**
+
+    - The github-proxy allowlists `/langpack/` paths (including `languages.md5`) on `download.moodle.org` and `packaging.moodle.org`, so the native **Site administration → Language → Language packs** UI installs directly.
+    - Language packs are GET requests, so they work in Chromium, Firefox, and Safari — unlike streaming POST uploads which hit `duplex: 'half'` limits on Firefox/Safari.
+    - In blueprints, use the `installLanguagePack` step, or set `options.locale` in the `installMoodle` step — the pack auto-installs on boot via `runLanguageAutoInstall()` in `bootstrap.js`.
+
+    **If it still fails:** Confirm the proxy is deployed with the langpack allowance (`isMoodleLangpackUrl` in `scripts/github-proxy-worker.js`), that it is reachable, and that `phpCorsProxyUrl` is set in `playground.config.json`.
+
+    **Files:**
+
+    - `scripts/github-proxy-worker.js`
+    - `src/blueprint/steps/moodle-language.js`
+    - `src/runtime/bootstrap.js`
+  </Accordion>
+
+  <Accordion title="restoreCourse fails or the course is missing after restore">
+    **Likely cause:**
+
+    - The `.mbz` is large or complex. Restore runs entirely in the WASM runtime, which has limited memory and a SQLite driver that crashes on nested savepoints (ADR-0003). Large backups (many activities, large files, completion data) can exceed memory or hit transaction limits.
+    - The `url` is not reachable: the host must be CORS-accessible (for example `raw.githubusercontent.com`) or proxy-allowlisted, otherwise the in-PHP download fails.
+
+    **What to do:**
+
+    - A failed restore is reported in the boot log and is **non-fatal** — the rest of the blueprint still runs. The course simply will not be created.
+    - Prefer smaller course backups.
+    - Host large `.mbz` files at a CORS-accessible URL so they stream into the runtime (the `url` source) instead of being buffered in memory (the `data` source).
+    - If it fails only in one browser, check the URL's CORS headers — the download is a GET via `tcpOverFetch`, which works across Chromium, Firefox, and Safari.
+
+    **Files:**
+
+    - `src/blueprint/steps/moodle-restore.js`
+    - `src/blueprint/php/helpers.js`
+  </Accordion>
+
+  <Accordion title="PHP worker bridge timed out">
+    **Likely cause:**
+
+    - The worker is alive but the request handler is blocked
+    - Often follows a fatal in PHP or a very slow or stuck bootstrap
+
+    **Files:**
+
+    - `php-worker.js`
+    - `src/remote/main.js`
+    - `src/runtime/bootstrap.js`
+
+    Check the shell log for the last bootstrap stage reached and retry with `?debug=true` to surface any hidden PHP errors.
+  </Accordion>
+</AccordionGroup>
+
+## SQLite driver bugs
+
+If the error originates from the DML or DDL layer (`sqlite3_pdo_moodle_database.php` or `sqlite_sql_generator.php`), it is a driver bug that must be fixed in **two places**:
+
+1. The upstream fork [ateeducacion/moodle](https://github.com/ateeducacion/moodle) (three maintained branches for Moodle tracker PRs)
+2. The **local patch copies** in this repository under `patches/shared/lib/dml/` and `patches/shared/lib/ddl/`
+
+<Warning>
+  This repository maintains its own independent copies of the SQLite driver files. The build pipeline clones official Moodle and overlays these local patches — it does **not** pull from the `ateeducacion/moodle` fork. **Fixing only the fork will not fix the playground.** You must also apply the fix to the local patch copies.
+</Warning>
+
+### Fix workflow
+
+<Steps>
+  <Step title="Reproduce and fix on the workbench branch">
+    Use the `mdl-88218-workbench` branch with `make up` (local PHP + SQLite) to reproduce the issue and verify the fix.
+  </Step>
+  <Step title="Replicate to all upstream branches">
+    Apply the same fix to all three maintained upstream branches in the `ateeducacion/moodle` fork.
+  </Step>
+  <Step title="Apply the fix to local patch copies">
+    Copy the fix to `patches/shared/lib/dml/` or `patches/shared/lib/ddl/` in this repository.
+  </Step>
+  <Step title="Trigger a rebuild">
+    Trigger a manual rebuild via [GitHub Actions](https://github.com/ateeducacion/moodle-playground/actions/workflows/ci.yml) — select **Run workflow → main**.
+  </Step>
+</Steps>
+
+**Example — `ddltablenotexist: Table "backup_ids_temp" does not exist`**
+
+Root cause: `fetch_columns()` only queried `sqlite_master` but SQLite stores temporary tables in `sqlite_temp_master`. Fixed by adding a `UNION ALL` with `sqlite_temp_master` ([issue #48](https://github.com/ateeducacion/moodle-playground/issues/48)).
+
+## If install fails mid-way
+
+Inspect the staged bootstrap messages emitted by `src/runtime/bootstrap.js` in the shell log:
+
+```text
+core:start
+core:schema-load:start
+core:schema-load:done
+core:schema-sql:count=...
+plugins:start
+finalize:start
+themes:start
+```
+
+| Stage of failure | Where to look |
+|------------------|---------------|
+| Before `core:schema-load:done` | Inspect XMLDB patches |
+| During schema SQL execution | Inspect SQLite DDL generator and DML driver |
+| During `finalize` | Inspect config hydration and brittle plugin settings files |
+| After install, on first navigation | Inspect `wwwroot`, redirects, asset URLs, CGI env, and iframe recovery |
+
+## PHP extensions available in the WASM runtime
+
+The `@php-wasm/web` PHP runtime (versions 8.1–8.5, default 8.3) includes these extensions built into the WASM binary:
+
+```text
+dom, iconv, intl, libxml, simplexml, xml, zip, mbstring, openssl,
+sqlite3, pdo_sqlite, phar, curl, gd, fileinfo, xmlreader, xmlwriter
+```
+
+<Note>
+  `sodium` is **not** available. The repository relies on the OpenSSL fallback patches in `patches/shared/lib/classes/encryption.php`.
+
+  `curl` is available as an extension but actual network requests from WASM use a fetch-based transport, not real sockets. When `playground.config.json` defines `phpCorsProxyUrl`, the runtime uses that proxy as the browser-side fallback for outbound PHP HTTP(S) traffic. This is separate from `addonProxyUrl`, which handles browser-side ZIP and plugin downloads via the Service Worker proxy endpoint.
+</Note>

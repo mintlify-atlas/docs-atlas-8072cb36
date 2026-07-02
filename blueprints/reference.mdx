@@ -1,0 +1,740 @@
+---
+title: "Blueprint Reference: All Steps, Fields, and Options"
+sidebarTitle: "Reference"
+description: "Complete reference for Moodle Playground blueprints: top-level fields, constants, resources, and every step type with required and optional parameters."
+---
+
+This is the complete technical reference for Moodle Playground blueprint files. For a hands-on introduction and step-by-step walkthrough, see the [Overview](/blueprints/overview). For ready-to-run files you can open immediately, see the [Examples](/blueprints/examples). Version selection and Docker portability are covered in [Runtime & Versions](/blueprints/runtime).
+
+The machine-readable JSON Schema is published at [`blueprint-schema.json`](https://ateeducacion.github.io/moodle-playground/assets/blueprints/blueprint-schema.json) — add it to your editor for autocomplete and inline validation.
+
+A blueprint is a JSON document describing the desired state of an instance at boot. Steps run sequentially in array order.
+
+```json
+{
+  "$schema": "https://ateeducacion.github.io/moodle-playground/assets/blueprints/blueprint-schema.json",
+  "preferredVersions": { "php": "8.3", "moodle": "5.0" },
+  "landingPage": "/my/",
+  "constants": { "SITE_NAME": "My Moodle" },
+  "steps": [
+    { "step": "installMoodle", "options": { "siteName": "{{SITE_NAME}}" } },
+    { "step": "login", "username": "admin" }
+  ]
+}
+```
+
+## Top-level fields
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `steps` | array | **yes** | Ordered list of step objects. Each object must include a `step` name string. |
+| `constants` | object | no | `{{KEY}}` → string map. Every placeholder is substituted deeply across all fields before steps run. |
+| `resources` | object | no | Named file descriptors referenced as `@name` from step fields. |
+| `runtime` | object | no | Boot-time `config.php` settings: `debug` (`0`/`5`/`15`/`32767`) and `debugdisplay` (`0`/`1`). |
+| `phpConstants` | object | no | PHP constants defined in `config.php` before `lib/setup.php`. Name → boolean / string / number. |
+| `landingPage` | string | no | Path opened after boot. Must start with `/`. |
+| `preferredVersions` | object | no | `{ "php": "8.3", "moodle": "5.0" }` — preferred runtime, subject to compatibility fallback. |
+| `$schema` | string | no | Informational schema reference for editor validation. |
+
+## Constants
+
+`constants` defines `{{KEY}}` placeholders that are replaced deeply in every string value before any step executes.
+
+```json
+{
+  "constants": { "ADMIN_EMAIL": "admin@example.com" },
+  "steps": [
+    { "step": "installMoodle", "options": { "adminEmail": "{{ADMIN_EMAIL}}" } }
+  ]
+}
+```
+
+Context constants `{{REPO}}`, `{{OWNER}}`, `{{REF}}` / `{{BRANCH}}` are derived from the `repo`, `owner`, and `branch` (alias `ref`) URL parameters and merged *over* the blueprint's own `constants`. This lets a committed blueprint target the branch it is currently previewing without hardcoding the branch name. See [URL parameters](/url-parameters).
+
+## PHP constants
+
+`phpConstants` defines PHP constants in the booted Moodle's `config.php`, before `require_once(lib/setup.php)`, so they are available on every request. Each entry is emitted as a guarded `define()`:
+
+```json
+{
+  "phpConstants": {
+    "MY_FLAG": true,
+    "MY_LABEL": "demo",
+    "MY_LIMIT": 50
+  }
+}
+```
+
+produces, in `config.php`:
+
+```php
+if (!defined('MY_FLAG'))  { define('MY_FLAG',  true); }
+if (!defined('MY_LABEL')) { define('MY_LABEL', 'demo'); }
+if (!defined('MY_LIMIT')) { define('MY_LIMIT', 50); }
+```
+
+Values may be boolean, string, or number. Constant names must match `^[A-Z_][A-Z0-9_]*$` — names that do not match are silently skipped. This lets a plugin's own blueprint enable plugin-specific configuration without the playground engine needing to know any plugin-specific details. For example, `mod_exelearning` declares `"phpConstants": { "EXELEARNING_UNSAFE_LEGACY_IFRAME": true }` so its demo renders the content iframe same-origin.
+
+## Resources
+
+A resource is a named file descriptor with **exactly one** source key. Reference it from any step with the string `"@name"`, or inline the descriptor directly in the step field.
+
+| Key | Value |
+|---|---|
+| `url` | Fetch over HTTP(S). ~30 s timeout, ~50 MB cap. |
+| `base64` | Inline base64-encoded data. |
+| `data-url` | A `data:` URI. |
+| `bundled` | Path relative to the app bundle. |
+| `vfs` | Path already present in the runtime filesystem. |
+| `literal` | Inline string or object value. |
+
+```json
+{
+  "resources": {
+    "backup": { "url": "https://example.com/course.mbz" }
+  },
+  "steps": [
+    { "step": "restoreCourse", "data": "@backup", "category": "Demo" }
+  ]
+}
+```
+
+---
+
+## Steps
+
+<Note>
+  **Legend:**
+  - **(HTTP)** — runs over an HTTP request (preserves session cookies).
+  - **(marker)** — records options for boot; does no runtime work itself.
+  - **(non-fatal)** — reports a failure but does not abort the remaining steps.
+  - **Batch steps** — accept an array under the named field and process each entry.
+  - All other steps abort the blueprint on error.
+</Note>
+
+### Install and auth
+
+#### `installMoodle` (marker)
+
+Records install options consumed at boot time. The actual installation is performed by `bootstrap.js` before steps run; this step passes configuration into that process.
+
+<ParamField body="options" type="object">
+  Installation options object.
+  <Expandable title="options fields">
+    <ParamField body="adminUser" type="string">Username for the admin account. Default: `admin`.</ParamField>
+    <ParamField body="adminPass" type="string">Password for the admin account. Default: `password`.</ParamField>
+    <ParamField body="adminEmail" type="string">Email for the admin account. Default: `admin@example.com`.</ParamField>
+    <ParamField body="siteName" type="string">The site full name shown in the header. Default: `Moodle Playground`.</ParamField>
+    <ParamField body="locale" type="string">Locale code for the default site language (e.g. `en`, `es`). Default: `en`.</ParamField>
+    <ParamField body="timezone" type="string">PHP timezone string (e.g. `UTC`, `Europe/Madrid`). Default: `UTC`.</ParamField>
+  </Expandable>
+</ParamField>
+
+```json
+{ "step": "installMoodle", "options": { "siteName": "My Moodle", "locale": "en", "timezone": "UTC" } }
+```
+
+---
+
+#### `setAdminAccount`
+
+Updates the site admin account. All fields are optional.
+
+<ParamField body="password" type="string">New password for the admin.</ParamField>
+<ParamField body="email" type="string">New email address.</ParamField>
+<ParamField body="firstname" type="string">Admin first name.</ParamField>
+<ParamField body="lastname" type="string">Admin last name.</ParamField>
+
+```json
+{ "step": "setAdminAccount", "password": "s3cret!", "email": "me@example.com" }
+```
+
+---
+
+#### `login` (HTTP)
+
+Starts an authenticated session. Subsequent HTTP steps (e.g. `request`, `runPhpScript`) will use this session's cookies.
+
+<ParamField body="username" type="string">Username to log in as. Default: `admin`.</ParamField>
+
+```json
+{ "step": "login", "username": "admin" }
+```
+
+---
+
+### Configuration
+
+#### `setConfig`
+
+Writes a single Moodle configuration value to `mdl_config` or `mdl_config_plugins`.
+
+<ParamField body="name" type="string" required>The config setting name (e.g. `enablebadges`, `country`).</ParamField>
+<ParamField body="value" type="string">The value to set. Default: `""`.</ParamField>
+<ParamField body="plugin" type="string">Plugin name for plugin-specific settings (e.g. `theme_boost`). Omit for core settings.</ParamField>
+
+```json
+{ "step": "setConfig", "name": "enablebadges", "value": "1" }
+```
+
+---
+
+#### `setConfigs` (batch)
+
+Sets multiple config values in one step.
+
+<ParamField body="configs" type="array" required>Array of `{ "name": "...", "value": "...", "plugin": "..." }` objects.</ParamField>
+
+---
+
+#### `setTheme`
+
+Activates a Moodle theme by directory name.
+
+<ParamField body="name" type="string" required>Theme directory name, e.g. `boost`, `moove`, `classic`.</ParamField>
+
+```json
+{ "step": "setTheme", "name": "moove" }
+```
+
+---
+
+#### `setLandingPage` (marker)
+
+Sets the page that opens after boot. Overrides the top-level `landingPage` field.
+
+<ParamField body="path" type="string" required>Site-relative path, must start with `/`. E.g. `/my/`, `/course/index.php`.</ParamField>
+
+```json
+{ "step": "setLandingPage", "path": "/my/" }
+```
+
+---
+
+### Users
+
+#### `createUser`
+
+Creates a Moodle user account.
+
+<ParamField body="username" type="string" required>The login username.</ParamField>
+<ParamField body="password" type="string">Account password. Default: `password`.</ParamField>
+<ParamField body="email" type="string">Email address. Default: `<username>@example.com`.</ParamField>
+<ParamField body="firstname" type="string">First name. Default: the username value.</ParamField>
+<ParamField body="lastname" type="string">Last name. Default: `User`.</ParamField>
+
+```json
+{ "step": "createUser", "username": "teacher1", "firstname": "Ada", "lastname": "Lovelace" }
+```
+
+---
+
+#### `createUsers` (batch)
+
+Creates multiple users in one step.
+
+<ParamField body="users" type="array" required>Array of user objects, each with the same fields as `createUser`.</ParamField>
+
+---
+
+### Categories
+
+#### `createCategory`
+
+Creates a course category.
+
+<ParamField body="name" type="string" required>Category display name.</ParamField>
+<ParamField body="description" type="string">Category description (HTML or plain text).</ParamField>
+<ParamField body="parent" type="string">Name of an existing parent category. Omit for a top-level category.</ParamField>
+
+```json
+{ "step": "createCategory", "name": "Science", "description": "Science department courses." }
+```
+
+---
+
+#### `createCategories` (batch)
+
+<ParamField body="categories" type="array" required>Array of category objects.</ParamField>
+
+---
+
+### Courses
+
+#### `createCourse`
+
+Creates a Moodle course.
+
+<ParamField body="fullname" type="string" required>Full course name displayed in headings.</ParamField>
+<ParamField body="shortname" type="string" required>Short name — the stable identifier used to reference this course in other steps.</ParamField>
+<ParamField body="category" type="string">Category name. Defaults to the top category if omitted.</ParamField>
+<ParamField body="summary" type="string">Course summary (HTML or plain text).</ParamField>
+<ParamField body="format" type="string">Course format. Default: `topics`.</ParamField>
+<ParamField body="numsections" type="integer">Number of sections. Default: `5`.</ParamField>
+
+```json
+{ "step": "createCourse", "fullname": "Intro to Moodle", "shortname": "M101", "category": "Science" }
+```
+
+---
+
+#### `createCourses` (batch)
+
+<ParamField body="courses" type="array" required>Array of course objects.</ParamField>
+
+---
+
+#### `createSection`
+
+Creates a named section inside an existing course.
+
+<ParamField body="course" type="string" required>Course shortname.</ParamField>
+<ParamField body="name" type="string">Section display name.</ParamField>
+<ParamField body="position" type="integer">Section position (0-indexed). Default: `0`.</ParamField>
+
+```json
+{ "step": "createSection", "course": "M101", "name": "Week 1", "position": 1 }
+```
+
+---
+
+#### `createSections` (batch)
+
+<ParamField body="sections" type="array" required>Array of section objects.</ParamField>
+
+---
+
+### Enrolment
+
+#### `enrolUser`
+
+Enrols a user in a course with a given role.
+
+<ParamField body="username" type="string" required>Username of the account to enrol.</ParamField>
+<ParamField body="course" type="string" required>Course shortname.</ParamField>
+<ParamField body="role" type="string">Moodle role shortname. Default: `student`. Common values: `student`, `editingteacher`, `teacher`, `manager`.</ParamField>
+
+```json
+{ "step": "enrolUser", "username": "teacher1", "course": "M101", "role": "editingteacher" }
+```
+
+---
+
+#### `enrolUsers` (batch)
+
+<ParamField body="enrolments" type="array" required>Array of `{ "username": "...", "course": "...", "role": "..." }` objects.</ParamField>
+
+---
+
+### Modules
+
+#### `addModule`
+
+Adds an activity or resource module to a course section. Any extra field beyond the documented ones is written directly to the module's database record, so activity-specific settings can be set here.
+
+<ParamField body="module" type="string" required>Activity type name, e.g. `label`, `assign`, `folder`, `page`, `quiz`, `board`.</ParamField>
+<ParamField body="course" type="string" required>Course shortname.</ParamField>
+<ParamField body="section" type="integer">Section number (0-indexed). Default: `0`.</ParamField>
+<ParamField body="name" type="string">Activity name shown in the course page.</ParamField>
+<ParamField body="intro" type="string">Activity description / introductory HTML.</ParamField>
+<ParamField body="files" type="array">Array of file attachments. Each entry requires `filename` and `data` (resource descriptor); optional: `filearea` (default `content`), `itemid` (default `0`), `filepath` (default `/`).</ParamField>
+
+<Note>
+  Third-party modules must be installed with `installMoodlePlugin` before `addModule` can reference them.
+</Note>
+
+```json
+{ "step": "addModule", "module": "assign", "course": "M101", "section": 1, "name": "Homework 1" }
+```
+
+---
+
+### Course restore
+
+#### `restoreCourse` (non-fatal)
+
+Restores a Moodle course from a `.mbz` backup file. This step is non-fatal — a failure is logged but does not stop remaining steps.
+
+<ParamField body="url" type="string">Direct URL to the `.mbz` file. Takes precedence over `path` and `data`.</ParamField>
+<ParamField body="path" type="string">Filesystem path to the `.mbz` file inside the runtime. Takes precedence over `data`.</ParamField>
+<ParamField body="data" type="string | object">Resource descriptor or `@name` reference. Used if neither `url` nor `path` is given.</ParamField>
+<ParamField body="category" type="string">Target category name. Auto-created if it does not exist.</ParamField>
+<ParamField body="createCategory" type="boolean">Whether to auto-create the target category. Default: `true`.</ParamField>
+<ParamField body="fullname" type="string">Override the course full name from the backup.</ParamField>
+<ParamField body="shortname" type="string">Override the course short name from the backup.</ParamField>
+<ParamField body="visible" type="boolean">Whether the restored course is visible to students. Default: `true`.</ParamField>
+
+<Warning>
+  Large backups can exhaust WASM memory and crash the runtime. Keep `.mbz` files under a few megabytes or use the Docker runtime for heavy restores.
+</Warning>
+
+```json
+{ "step": "restoreCourse", "url": "https://example.com/course.mbz", "category": "Demo" }
+```
+
+---
+
+### Roles
+
+#### `createRole`
+
+Creates a custom Moodle role.
+
+<ParamField body="shortname" type="string" required>Unique machine-readable role identifier.</ParamField>
+<ParamField body="name" type="string">Human-readable role name.</ParamField>
+<ParamField body="description" type="string">Role description.</ParamField>
+<ParamField body="archetype" type="string">Base archetype to derive default permissions from (e.g. `editingteacher`, `student`).</ParamField>
+<ParamField body="resetToArchetype" type="boolean">Reset capabilities to the archetype's defaults before applying overrides.</ParamField>
+<ParamField body="contextlevels" type="array">List of context levels (names or integers) where the role can be assigned.</ParamField>
+<ParamField body="capabilities" type="object">Map of capability name → `allow` / `prevent` / `prohibit` / `inherit`.</ParamField>
+<ParamField body="allowAssign" type="array">Role shortnames this role may assign.</ParamField>
+<ParamField body="allowOverride" type="array">Role shortnames this role may override.</ParamField>
+<ParamField body="allowSwitch" type="array">Role shortnames this role may switch to.</ParamField>
+<ParamField body="allowView" type="array">Role shortnames this role may view.</ParamField>
+
+```json
+{ "step": "createRole", "shortname": "coordinator", "archetype": "editingteacher", "name": "Course Coordinator" }
+```
+
+---
+
+#### `createRoles` (batch)
+
+<ParamField body="roles" type="array | string">Array of role objects, a `@resource` reference, or a URL resolving to a JSON array.</ParamField>
+
+---
+
+#### `importRolePreset`
+
+Imports a role from a Moodle XML role-preset file using Moodle's built-in parser.
+
+<ParamField body="xml" type="string">Inline role-preset XML string.</ParamField>
+<ParamField body="resource" type="string | object">`@name` reference or resource descriptor resolving to XML.</ParamField>
+
+```json
+{ "step": "importRolePreset", "resource": "@coordinatorXml" }
+```
+
+---
+
+#### `importRoles` (batch)
+
+<ParamField body="roles" type="array" required>Array of XML references: `@name`, raw XML string, `{ "xml": "..." }`, or a resource descriptor.</ParamField>
+
+---
+
+### Scales
+
+#### `createScale`
+
+Creates a grading scale.
+
+<ParamField body="name" type="string" required>Scale display name.</ParamField>
+<ParamField body="items" type="array | string" required>Scale values from lowest to highest — as an array (`["Not yet", "Competent"]`) or comma-separated string.</ParamField>
+<ParamField body="description" type="string">Scale description.</ParamField>
+<ParamField body="course" type="string">Course shortname for a course-level scale. Omit for a site-wide scale.</ParamField>
+
+```json
+{ "step": "createScale", "name": "Competency", "items": ["Not yet", "Approaching", "Competent"] }
+```
+
+---
+
+#### `createScales` (batch)
+
+<ParamField body="scales" type="array | string">Array of scale objects, a `@resource` reference, a URL, or the `{ "format": "moodle-scale-export", "scales": [...] }` export envelope.</ParamField>
+
+---
+
+### Cohorts
+
+#### `createCohort`
+
+Creates a site cohort (system-wide group).
+
+<ParamField body="name" type="string" required>Cohort display name.</ParamField>
+<ParamField body="idnumber" type="string">Unique idnumber used as an idempotency key and for external sync.</ParamField>
+<ParamField body="description" type="string">Cohort description.</ParamField>
+<ParamField body="visible" type="boolean">Whether the cohort is visible in the UI. Default: `true`.</ParamField>
+<ParamField body="members" type="array">Array of existing usernames to add as members on creation.</ParamField>
+
+```json
+{ "step": "createCohort", "name": "Staff 2026", "idnumber": "staff2026", "members": ["teacher1", "teacher2"] }
+```
+
+---
+
+#### `createCohorts` (batch)
+
+<ParamField body="cohorts" type="array | string">Array of cohort objects, a `@resource` reference, or a URL.</ParamField>
+
+---
+
+### Plugins and themes
+
+#### `installMoodlePlugin`
+
+Downloads and installs a Moodle plugin from a GitHub archive ZIP URL.
+
+<ParamField body="url" type="string" required>GitHub archive ZIP URL, e.g. `https://github.com/org/moodle-mod_board/archive/refs/heads/MOODLE_405_STABLE.zip`.</ParamField>
+<ParamField body="pluginType" type="string">Override the detected plugin type (e.g. `mod`, `block`, `local`). Auto-detected from the `moodle-TYPE_NAME` repo-name convention.</ParamField>
+<ParamField body="pluginName" type="string">Override the detected plugin name. Auto-detected from the repo name.</ParamField>
+
+```json
+{
+  "step": "installMoodlePlugin",
+  "url": "https://github.com/brickfield/moodle-mod_board/archive/refs/heads/MOODLE_405_STABLE.zip"
+}
+```
+
+---
+
+#### `installTheme`
+
+Downloads and installs a Moodle theme. Files are placed in `theme/<name>/` but the theme is not activated — pair with `setTheme` to activate it.
+
+<ParamField body="url" type="string" required>GitHub archive ZIP URL.</ParamField>
+<ParamField body="pluginName" type="string">Override the detected theme name.</ParamField>
+
+```json
+{
+  "step": "installTheme",
+  "url": "https://github.com/willianmano/moodle-theme_moove/archive/refs/heads/MOODLE_500_STABLE.zip"
+}
+```
+
+---
+
+### Languages
+
+#### `installLanguagePack` (non-fatal)
+
+Downloads and installs a Moodle language pack. This step is non-fatal — a download failure is logged but does not abort the blueprint.
+
+<ParamField body="language" type="string">A single language code (e.g. `es`, `fr`). Matches `^[a-z][a-z0-9_]*$`.</ParamField>
+<ParamField body="languages" type="string | array">A comma-separated string or array of language codes.</ParamField>
+<ParamField body="lang" type="string | array">Alias for `language` / `languages`.</ParamField>
+<ParamField body="setDefault" type="boolean">Set this language as the site default. Default: `false`.</ParamField>
+
+<Tip>
+  Setting the `locale` option in `installMoodle` already installs that pack on boot. Use `installLanguagePack` only for additional languages or to install a pack without changing the site default.
+</Tip>
+
+```json
+{ "step": "installLanguagePack", "language": "es", "setDefault": true }
+```
+
+---
+
+### File-backed config settings
+
+These steps register a file with Moodle's File API and point a config setting at it. This is required for logos, favicons, and theme images — `setConfig` alone cannot do this because those settings reference file record IDs, not raw paths.
+
+#### `setConfigFile`
+
+<ParamField body="plugin" type="string" required>Plugin or component name (e.g. `theme_boost`, `core_admin`).</ParamField>
+<ParamField body="name" type="string" required>Config setting name that will be set to the file's item ID.</ParamField>
+<ParamField body="filename" type="string" required>Filename to store in the File API (e.g. `logo.png`).</ParamField>
+<ParamField body="data" type="string | object" required>Resource descriptor or `@name` reference to the file contents.</ParamField>
+<ParamField body="filearea" type="string">File area name. Default: same as `name`.</ParamField>
+<ParamField body="itemid" type="integer">File API item ID. Default: `0`.</ParamField>
+<ParamField body="filepath" type="string">File path in the File API. Default: `/`.</ParamField>
+<ParamField body="replace" type="boolean">Replace an existing file at the same path. Default: `true`.</ParamField>
+<ParamField body="setConfigValue" type="boolean">Write the item ID to the config setting. Default: `true`.</ParamField>
+<ParamField body="purgeCaches" type="boolean">Purge Moodle caches after storing the file. Default: `false`.</ParamField>
+<ParamField body="author" type="string">Author metadata for the File API record.</ParamField>
+<ParamField body="license" type="string">License string for the File API record.</ParamField>
+<ParamField body="source" type="string">Source URL metadata for the File API record.</ParamField>
+<ParamField body="userid" type="integer">User ID to own the file. Default: site admin ID.</ParamField>
+
+```json
+{
+  "step": "setConfigFile",
+  "plugin": "theme_boost",
+  "name": "logo",
+  "filename": "logo.png",
+  "data": { "url": "https://example.com/logo.png" }
+}
+```
+
+---
+
+#### `setConfigFiles` (batch)
+
+Stores multiple files under a single component+setting combination.
+
+<ParamField body="plugin" type="string" required>Plugin or component name.</ParamField>
+<ParamField body="name" type="string" required>Config setting name.</ParamField>
+<ParamField body="files" type="array" required>Non-empty array of `{ "filename": "...", "data": ... }` objects. Top-level optional fields act as defaults; the config value is set to the first stored file's item ID.</ParamField>
+
+---
+
+### Filesystem
+
+#### `mkdir`
+
+Creates a directory (recursively, like `mkdir -p`).
+
+<ParamField body="path" type="string" required>Absolute path in the WASM filesystem.</ParamField>
+
+---
+
+#### `rmdir`
+
+Removes a directory.
+
+<ParamField body="path" type="string" required>Absolute path to remove.</ParamField>
+<ParamField body="recursive" type="boolean">Remove contents recursively. Default: `false`.</ParamField>
+
+---
+
+#### `writeFile`
+
+Writes data to a file, creating parent directories as needed.
+
+<ParamField body="path" type="string" required>Absolute path of the file to write.</ParamField>
+<ParamField body="data" type="string | object" required>Inline string, `@reference`, or resource descriptor.</ParamField>
+
+```json
+{ "step": "writeFile", "path": "/www/moodle/local/note.txt", "data": "hello" }
+```
+
+---
+
+#### `writeFiles` (batch)
+
+<ParamField body="files" type="array" required>Array of `{ "path": "...", "data": ... }` objects.</ParamField>
+
+---
+
+#### `copyFile`
+
+Copies a file within the WASM filesystem.
+
+<ParamField body="from" type="string" required>Source path.</ParamField>
+<ParamField body="to" type="string" required>Destination path.</ParamField>
+
+---
+
+#### `moveFile`
+
+Moves (renames) a file within the WASM filesystem.
+
+<ParamField body="from" type="string" required>Source path.</ParamField>
+<ParamField body="to" type="string" required>Destination path.</ParamField>
+
+---
+
+#### `deleteFile`
+
+Deletes a single file. Idempotent — a missing path is skipped without error.
+
+<ParamField body="path" type="string" required>Absolute path of the file to delete.</ParamField>
+
+---
+
+#### `deleteFiles` (batch)
+
+<ParamField body="files" type="array" required>Array of string paths or `{ "path": "..." }` objects.</ParamField>
+
+---
+
+#### `unzip`
+
+Extracts a ZIP archive into a destination directory.
+
+<ParamField body="data" type="string | object" required>Resource descriptor or `@name` reference to the ZIP file.</ParamField>
+<ParamField body="destination" type="string" required>Absolute path to extract into. Also accepted as `path`.</ParamField>
+
+```json
+{ "step": "unzip", "data": "@archive", "destination": "/www/moodle/local/myext" }
+```
+
+---
+
+### Requests and code
+
+#### `request` (HTTP)
+
+Makes an HTTP request to the running Moodle site. Useful for triggering cron, flushing caches, or calling web services.
+
+<ParamField body="url" type="string">URL to request. Default: the site root.</ParamField>
+<ParamField body="method" type="string">HTTP method. Default: `GET`.</ParamField>
+<ParamField body="headers" type="object">HTTP request headers as a key-value map.</ParamField>
+<ParamField body="body" type="string">Request body (for POST/PUT).</ParamField>
+<ParamField body="expectOk" type="boolean">Abort the blueprint if the response status is ≥ 400. Default: `true`.</ParamField>
+
+```json
+{ "step": "request", "url": "http://localhost:8080/admin/cron.php" }
+```
+
+---
+
+#### `runPhpCode`
+
+Executes arbitrary PHP code in CLI mode (`CLI_SCRIPT`). The `<?php` opening tag is optional.
+
+<ParamField body="code" type="string" required>PHP code to execute.</ParamField>
+
+```json
+{ "step": "runPhpCode", "code": "set_config('country', 'ES');" }
+```
+
+---
+
+#### `runPhpScript` (HTTP)
+
+Writes PHP code to a temporary file and executes it over HTTP (session cookies are available).
+
+<ParamField body="code" type="string" required>PHP code to execute.</ParamField>
+<ParamField body="expectOk" type="boolean">Abort on HTTP status ≥ 400. Default: `true`.</ParamField>
+
+---
+
+### PR overlay
+
+#### `applyPrOverlay`
+
+Fetches changed files from a GitHub pull request or branch comparison and overlays them on the running Moodle filesystem, then optionally runs the upgrade script and purges caches.
+
+<ParamField body="files" type="array">Pre-resolved file manifest (skips GitHub API). Takes highest precedence.</ParamField>
+<ParamField body="repo" type="string">GitHub repository in `owner/repo` format (e.g. `moodle/moodle`).</ParamField>
+<ParamField body="pr" type="integer">Pull request number. Used with `repo` to resolve files from a PR.</ParamField>
+<ParamField body="base" type="string">Base branch for a branch comparison. Default: `main`. Used with `repo` + `head`.</ParamField>
+<ParamField body="head" type="string">Head branch or commit SHA for a branch comparison. Used with `repo` + `base`.</ParamField>
+<ParamField body="baseRef" type="string">Override the base commit ref used for diff resolution.</ParamField>
+<ParamField body="runUpgrade" type="string">Whether to run `admin/cli/upgrade.php`. One of `off` / `on` / `auto`. Default: `auto` (best-effort, non-fatal).</ParamField>
+<ParamField body="root" type="string">Filesystem root to overlay files into. Default: `/www/moodle`.</ParamField>
+<ParamField body="proxy" type="string">HTTP proxy URL for GitHub API requests.</ParamField>
+<ParamField body="maxFiles" type="integer">Abort if the PR touches more files than this. Default: `200`.</ParamField>
+<ParamField body="maxFileBytes" type="integer">Skip individual files larger than this (bytes). Default: 5 MiB.</ParamField>
+<ParamField body="purgeCaches" type="boolean">Purge Moodle caches after applying the overlay. Default: `true`.</ParamField>
+
+```json
+{ "step": "applyPrOverlay", "repo": "moodle/moodle", "pr": 532, "runUpgrade": "auto" }
+```
+
+---
+
+#### `purgeMoodleCaches`
+
+Resets all Moodle caches and the component registry. Run automatically by `applyPrOverlay`.
+
+```json
+{ "step": "purgeMoodleCaches" }
+```
+
+---
+
+## Execution model
+
+Steps in a blueprint run **sequentially** in array order. The execution model distinguishes four categories:
+
+- **CLI steps** — the majority of steps; run PHP in `CLI_SCRIPT` mode. A non-zero exit code aborts the blueprint.
+- **HTTP steps** (`login`, `request`, `runPhpScript`) — run over an HTTP request against the running Moodle site, allowing session cookies to persist across calls.
+- **Marker steps** (`installMoodle`, `setLandingPage`) — do no runtime work; they record configuration consumed during or after the boot sequence.
+- **Non-fatal steps** (`restoreCourse`, `installLanguagePack`) — report failures to the console but continue with the next step. For `applyPrOverlay`, individual oversized files are skipped and the upgrade/cache-purge phases are best-effort, but manifest resolution failures and exceeding `maxFiles` still abort.
+
+The `createRole`, `createScale`, `createCohort`, and `importRoles` generators silently skip references to capabilities, roles, or users that do not exist at runtime, but a missing required field or a PHP error still aborts the blueprint.
+
+For complete, working examples see the [Examples](/blueprints/examples) page.

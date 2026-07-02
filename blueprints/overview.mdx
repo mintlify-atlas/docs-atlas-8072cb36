@@ -1,0 +1,229 @@
+---
+title: "Blueprints: Declarative Moodle Provisioning at Boot"
+sidebarTitle: "Overview"
+description: "Learn how Moodle Playground blueprints work: JSON files that run ordered steps to install Moodle, create users, courses, and plugins at boot."
+---
+
+A **blueprint** is a JSON file that describes how a Moodle Playground instance should look at boot. It is an ordered list of **steps** — install Moodle, log in, create a course, enrol a user, install a plugin, and so on. When the playground starts with a blueprint, it replays those steps automatically, so you land on a ready-to-use site instead of an empty install. The runtime is fully in-browser via WebAssembly: everything runs in memory, nothing is persisted to a server.
+
+## A minimal blueprint
+
+The smallest useful blueprint installs Moodle, logs in as admin, and opens the dashboard:
+
+```json title="minimal.blueprint.json"
+{
+  "$schema": "../blueprint-schema.json",
+  "landingPage": "/my/",
+  "steps": [
+    {
+      "step": "installMoodle",
+      "options": {
+        "adminUser": "admin",
+        "adminPass": "password",
+        "adminEmail": "admin@example.com",
+        "siteName": "My Moodle"
+      }
+    },
+    {
+      "step": "login",
+      "username": "admin"
+    }
+  ]
+}
+```
+
+Every other blueprint builds on top of this skeleton. `installMoodle` is a *marker* step — the actual installation runs during the boot sequence using the `options` you supply. `login` runs over HTTP so the landing page opens already authenticated.
+
+<Note>
+  The default admin credentials are `admin` / `password`. Override them with `installMoodle`'s `options` fields (`adminUser`, `adminPass`, `adminEmail`) as shown above.
+</Note>
+
+## Loading a blueprint
+
+There are four ways to supply a blueprint to the playground.
+
+<Tabs>
+  <Tab title="From a URL">
+    Point the `blueprint-url` parameter at any reachable JSON file — a relative path served by the playground host, or an absolute HTTPS URL:
+
+    ```text
+    https://moodle-playground.com/?blueprint-url=/assets/blueprints/examples/minimal.blueprint.json
+    ```
+
+    This is the most shareable method: paste the link anywhere and the recipient opens a pre-configured Moodle in their browser.
+  </Tab>
+  <Tab title="Inline (highest precedence)">
+    Pass the blueprint directly in the `blueprint` parameter as raw JSON (URL-encoded), base64, gzip+base64url, or a `data:` URI. Inline blueprints take precedence over all other sources:
+
+    ```text
+    https://moodle-playground.com/?blueprint=%7B%22steps%22%3A%5B%7B%22step%22%3A%22installMoodle%22%7D%5D%7D
+    ```
+
+    Use this for quick one-off tests or CI pipelines where you generate the blueprint programmatically.
+  </Tab>
+  <Tab title="Import in the shell">
+    Inside the playground, open **Settings → Import Blueprint** and upload a `.json` file from your machine. No URL required — useful while authoring a blueprint locally before publishing it.
+  </Tab>
+  <Tab title="Bundled default">
+    With no `blueprint` or `blueprint-url` parameter, the playground loads `assets/blueprints/default.blueprint.json`, which installs Moodle 5.0 + PHP 8.3, creates a starter course, and opens the site home. This is what you see on a bare `https://moodle-playground.com/` visit.
+  </Tab>
+</Tabs>
+
+The full source-precedence order is: `blueprint` parameter → `blueprint-url` parameter → saved tab session → project default → built-in minimal. See [URL parameters](/url-parameters) for the complete parameter reference.
+
+## Top-level fields
+
+Most blueprints only need `steps`. All other top-level fields are optional:
+
+```json
+{
+  "$schema": "https://ateeducacion.github.io/moodle-playground/assets/blueprints/blueprint-schema.json",
+  "preferredVersions": { "php": "8.3", "moodle": "5.0" },
+  "runtime": { "debug": 0, "debugdisplay": 0 },
+  "constants": { "ADMIN_USER": "admin" },
+  "landingPage": "/my/",
+  "steps": []
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `steps` | array | **yes** | Ordered list of step objects. Each object must have a `step` name. |
+| `constants` | object | no | Map of `{{KEY}}` → string values substituted everywhere before steps run. |
+| `resources` | object | no | Named file descriptors (`@name`) referenced from step fields. |
+| `runtime` | object | no | Boot-time `config.php` settings: `debug` (0/5/15/32767) and `debugdisplay` (0/1). |
+| `phpConstants` | object | no | PHP constants emitted as guarded `define()` calls in `config.php` before `lib/setup.php`. |
+| `landingPage` | string | no | Path to open after boot. Must start with `/`. |
+| `preferredVersions` | object | no | Preferred `{ "php": "8.3", "moodle": "5.0" }` — advisory, see [Runtime](/blueprints/runtime). |
+| `$schema` | string | no | Points at `blueprint-schema.json` for editor validation and autocomplete. |
+
+## Constants (`{{KEY}}` substitution)
+
+Constants let you write a value once and reuse it across every step. Every `{{KEY}}` placeholder is replaced — deeply, in every string field — before any step executes.
+
+```json
+{
+  "constants": {
+    "ADMIN_USER": "admin",
+    "ADMIN_PASS": "password",
+    "ADMIN_EMAIL": "admin@example.com"
+  },
+  "steps": [
+    {
+      "step": "installMoodle",
+      "options": {
+        "adminUser": "{{ADMIN_USER}}",
+        "adminPass": "{{ADMIN_PASS}}",
+        "adminEmail": "{{ADMIN_EMAIL}}"
+      }
+    },
+    { "step": "login", "username": "{{ADMIN_USER}}" }
+  ]
+}
+```
+
+Blueprint constants merge with constants derived from URL parameters: `{{REPO}}`, `{{OWNER}}`, `{{BRANCH}}`, and `{{REF}}` are automatically populated from the `repo`, `owner`, `branch` / `ref` URL parameters. This is how PR-preview blueprints target the current branch without hardcoding it. See [URL parameters](/url-parameters).
+
+## Building a blueprint step by step
+
+The snippets below stack into a single complete blueprint. Add them to the `steps` array in this order.
+
+<Steps>
+  <Step title="Install Moodle and log in">
+    Every blueprint starts with these two steps. `installMoodle` records the admin credentials and site name used during boot. `login` opens an authenticated browser session so subsequent steps that run over HTTP use the admin cookie.
+
+    ```json
+    { "step": "installMoodle", "options": { "siteName": "My Moodle", "adminPass": "password" } },
+    { "step": "login", "username": "admin" }
+    ```
+  </Step>
+  <Step title="Create a user">
+    Only `username` is required. The password defaults to `password`; email, firstname, and lastname have sensible defaults too.
+
+    ```json
+    {
+      "step": "createUser",
+      "username": "teacher1",
+      "firstname": "Jane",
+      "lastname": "Teacher",
+      "email": "teacher1@example.com"
+    }
+    ```
+  </Step>
+  <Step title="Create a category and course">
+    `fullname` and `shortname` are both required for `createCourse`. The `shortname` is the stable identifier used by later steps to reference the course.
+
+    ```json
+    { "step": "createCategory", "name": "Sample Courses" },
+    {
+      "step": "createCourse",
+      "fullname": "Getting Started with Moodle",
+      "shortname": "INTRO101",
+      "category": "Sample Courses"
+    }
+    ```
+  </Step>
+  <Step title="Enrol the user">
+    `role` defaults to `student`. Other built-in roles are `editingteacher`, `teacher`, `manager`, and `coursecreator`.
+
+    ```json
+    {
+      "step": "enrolUser",
+      "username": "teacher1",
+      "course": "INTRO101",
+      "role": "editingteacher"
+    }
+    ```
+  </Step>
+  <Step title="Add a course module">
+    `module` (the activity type) and `course` (shortname) are required. `label` is the simplest activity — it just renders HTML inline in the course page.
+
+    ```json
+    {
+      "step": "addModule",
+      "module": "label",
+      "course": "INTRO101",
+      "section": 1,
+      "name": "Welcome",
+      "intro": "<h3>Welcome!</h3><p>Created via a blueprint.</p>"
+    }
+    ```
+  </Step>
+  <Step title="Install a plugin from GitHub">
+    Use a GitHub archive ZIP URL: the `/archive/refs/heads/<branch>.zip` or `/archive/refs/tags/<tag>.zip` form. Plugin type and name are auto-detected from the `moodle-TYPE_NAME` repo-name convention.
+
+    ```json
+    {
+      "step": "installMoodlePlugin",
+      "url": "https://github.com/brickfield/moodle-mod_board/archive/refs/heads/MOODLE_405_STABLE.zip"
+    }
+    ```
+
+    To install a theme instead, use `installTheme` and then activate it with `setTheme`.
+  </Step>
+</Steps>
+
+## Common errors
+
+- **Invalid JSON.** A trailing comma or missing closing brace stops the entire blueprint. Validate the file in your editor (most flag JSON errors automatically) before loading it.
+- **Wrong step name.** An unknown `step` value fails with `Unknown step type`. Check spelling against the [Reference](/blueprints/reference).
+- **Bad plugin URL.** `installMoodlePlugin` and `installTheme` require a real GitHub *archive* ZIP URL. The branch or tag in the URL must already exist on the remote — a branch that has not been pushed returns 404.
+- **Outbound download blocked.** Firefox and Safari cannot make outbound network calls from WASM PHP, so plugin and language-pack downloads may fail. Use a CORS proxy (`addonProxyUrl` / `phpCorsProxyUrl` URL parameters) or switch to Chromium. See [URL parameters](/url-parameters).
+- **Out of memory.** Very large plugins, course backups, or `unzip` operations can exhaust WASM memory and crash the runtime. Keep blueprints lean and split large restores across multiple sessions.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Reference" icon="book" href="/blueprints/reference">
+    Every top-level field, step type, and step option with required/optional markers and JSON examples.
+  </Card>
+  <Card title="Examples" icon="rectangle-list" href="/blueprints/examples">
+    Eleven ready-to-use blueprints you can open immediately in the hosted playground.
+  </Card>
+  <Card title="Runtime & Versions" icon="microchip" href="/blueprints/runtime">
+    How to pick Moodle and PHP versions, and how to write blueprints portable across browser and Docker.
+  </Card>
+  <Card title="URL Parameters" icon="link" href="/url-parameters">
+    Full list of URL parameters for loading, configuring, and overriding blueprints.
+  </Card>
+</CardGroup>

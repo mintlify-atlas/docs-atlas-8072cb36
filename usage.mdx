@@ -1,0 +1,161 @@
+---
+title: "Using the Moodle Playground Interface"
+sidebarTitle: "Usage"
+description: "Navigate the Moodle Playground UI: the toolbar, side panel, version selector, blueprint import/export, and how to reset or share your session."
+---
+
+The Moodle Playground interface wraps a full Moodle LMS running in-browser with a lightweight shell: a toolbar that acts as a minimal browser chrome for the embedded Moodle site, and a side panel for runtime configuration, diagnostics, and blueprint management. This page walks through every element of that shell so you can drive the playground efficiently.
+
+## Open the playground
+
+The playground is hosted at three mirrored URLs — all serve the same application:
+
+- **[https://moodle-playground.com](https://moodle-playground.com)** — primary domain
+- **[https://moodle-playground.pages.dev/](https://moodle-playground.pages.dev/)** — Cloudflare Pages mirror
+- **[https://ateeducacion.github.io/moodle-playground/](https://ateeducacion.github.io/moodle-playground/)** — GitHub Pages mirror
+
+When you open any of these URLs, the runtime boots automatically. A full Moodle site is extracted from a prebuilt ZIP bundle into in-memory WASM storage, and a pre-built install snapshot is loaded — so Moodle is ready in roughly three seconds. Boot progress streams into the **Logs** tab. The site is ready when the address bar in the toolbar becomes editable.
+
+<Note>
+  Default credentials: username **`admin`**, password **`password`**. A blueprint can override these using an `installMoodle` step — see [Blueprints](/blueprints/overview).
+</Note>
+
+## The toolbar
+
+The toolbar runs across the top of the page and acts as a minimal browser chrome for the Moodle site embedded in the iframe below it. From left to right:
+
+- **Home** (house icon) — navigates the iframe to the Moodle site root (`/`).
+- **Refresh** (↻) — reloads the current Moodle page inside the iframe without resetting the playground state.
+- **Address bar** — displays and accepts the URL *inside* Moodle (the path portion only). Type a path and press **Enter** to navigate. Examples:
+
+  ```text
+  /admin/index.php
+  /course/management.php
+  /user/preferences.php
+  ```
+
+- **Documentation** — opens these docs in a new browser tab.
+- **Toggle sidebar** (panel icon, far right) — shows or hides the side panel.
+
+<Info>
+  The address bar takes paths relative to the Moodle site root, not full URLs. The internal routing — service worker scope, runtime ID, subpath prefix — is handled transparently. See [URL Parameters](/url-parameters) for the query parameters that configure the *app* URL itself (e.g. `?moodle=4.4&php=8.3`).
+</Info>
+
+## The side panel
+
+Click the **Toggle sidebar** button at the far right of the toolbar to open the side panel. It contains four tabs.
+
+### Info tab — versions and runtime control
+
+The **Info** tab is the main control surface for the active runtime:
+
+- **Moodle version** — select a prebuilt Moodle branch. Available options: **4.4**, **4.5**, **5.0** (default), **5.1**, **5.2**, and **main**. The version list reflects what has been bundled in the deployed build.
+- **PHP version** — select a PHP version compatible with the chosen Moodle branch. The list updates automatically based on the selected Moodle version. Supported range: **8.1 through 8.5**; the default is **8.3**.
+- **Apply & Reset** — this button appears only after you change a version. Clicking it is destructive: the current session is discarded and a fresh, clean install boots on the newly selected versions.
+- **Runtime ID** — a copyable identifier for the active runtime scope, useful when filing bug reports or reading log output.
+- **Reset Playground** — discards the current site and boots a clean install of the active version configuration. See [Reset the playground](#reset-the-playground).
+
+<Warning>
+  Switching the Moodle or PHP version reinstalls Moodle from scratch. All current courses, users, uploaded files, and any other data in the active session are permanently lost.
+</Warning>
+
+You can also set versions directly from the app URL without opening the panel:
+
+```text
+https://moodle-playground.com/?moodle=4.4&php=8.3
+```
+
+### Logs tab — runtime log
+
+The **Logs** tab streams boot and runtime messages in real time, including blueprint step progress, PHP errors, and Service Worker routing events. Two buttons sit above the log:
+
+- **Copy** — copies the full log text to the clipboard.
+- **Clear** — empties the visible log buffer.
+
+For more verbose output, open the playground with the `?debug=true` parameter:
+
+```text
+https://moodle-playground.com/?debug=true
+```
+
+Debug mode emits additional tracing from the PHP-WASM worker and the Service Worker, which is helpful for diagnosing blueprint failures or unexpected runtime crashes.
+
+### PHP Info tab — diagnostics
+
+The **PHP Info** tab renders the output of `phpinfo()` from the live PHP-WASM runtime. It shows the PHP version, loaded extensions (including the SQLite PDO driver patch), INI values, and WASM-specific configuration. Click **Refresh** to re-capture a fresh snapshot after the runtime has changed state.
+
+### Blueprint tab — view, import, export
+
+The **Blueprint** tab shows the active blueprint as read-only JSON. Three actions are available:
+
+- **Export** — downloads the active blueprint as a file named `moodle-playground.blueprint.json`.
+- **Import** — prompts you to choose a `.json` file from your computer; the playground reloads with that blueprint applied to a fresh runtime.
+
+## Loading a blueprint
+
+A blueprint is a JSON file that provisions the Moodle site at boot — creating courses, users, enrolments, installing plugins and themes, writing config values, and more. See the [Blueprints overview](/blueprints/overview) for the full format.
+
+There are three ways to load a blueprint:
+
+<Tabs>
+  <Tab title="From a file">
+    1. Open the **Blueprint** tab in the side panel.
+    2. Click **Import** and select a `.json` blueprint file from your computer.
+
+    The playground immediately reloads with the blueprint applied to a clean runtime. The imported blueprint also becomes the active blueprint shown in the tab's JSON viewer.
+  </Tab>
+  <Tab title="From a URL">
+    Append `?blueprint-url=` to the app URL. The value can be a relative path (served from the playground's own origin) or an absolute URL to any publicly accessible JSON file:
+
+    ```text
+    https://moodle-playground.com/?blueprint-url=/assets/blueprints/examples/minimal.blueprint.json
+    ```
+
+    Ready-made examples ship under `assets/blueprints/examples/`. See [Blueprint examples](/blueprints/examples) for the full list.
+  </Tab>
+  <Tab title="Inline">
+    Pass the blueprint JSON directly using `?blueprint=`. The value can be raw URL-encoded JSON, a base64-encoded string, or a `data:` URL. Inline blueprints take the highest precedence and override any `?blueprint-url=` value:
+
+    ```text
+    https://moodle-playground.com/?blueprint=%7B%22steps%22%3A%5B%7B%22step%22%3A%22installMoodle%22%7D%5D%7D
+    ```
+
+    This is the format used when you share a playground session via a generated URL.
+  </Tab>
+</Tabs>
+
+## Reset the playground
+
+Click **Reset Playground** in the **Info** tab to discard the current site and boot a clean install of the active version configuration. Unless a blueprint was supplied via `?blueprint=` or `?blueprint-url=` (or imported via the **Blueprint** tab), reset also clears any active blueprint so you start from the default configuration.
+
+<Note>
+  Reset is the recommended way to recover a stuck or broken session. Do not manually append `?clean=1` to the app URL — that is an internal parameter managed by the shell itself and may produce unexpected behaviour if added manually.
+</Note>
+
+## Ephemeral state model
+
+The playground is fully in-memory. Understanding the state model avoids data loss surprises:
+
+- **Within a tab session** — your data survives a page reload, but only for the *same blueprint source*. The mutable state under `/persist` is journaled to `sessionStorage`. Loading a different blueprint or clicking **Reset Playground** starts fresh.
+- **Across tabs** — each tab is completely independent. The runtime scope lives in `sessionStorage`, so opening the app in a new tab always starts a clean install.
+- **Closing the tab** — everything is gone. Nothing is written to disk, ever. The playground is a sandbox, not a persistence layer.
+
+If you want to reproduce a setup in a future session, export a blueprint from the **Blueprint** tab before closing the tab.
+
+## Limitations
+
+- **Ephemeral by design** — there is no persistence after the tab closes. Use blueprints to capture and reproduce setups.
+- **Browser support** — Chromium-based browsers (Chrome, Edge, Brave) offer the best compatibility. On Firefox and Safari, outbound network calls from WASM PHP are restricted, so installing plugins, themes, or language packs from external URLs may fail or silently fall back to a CORS proxy.
+- **Memory-bound** — very large courses, backup files, or heavy plugins can exhaust WASM memory and crash the PHP worker. The worker will attempt to snapshot the database, boot a fresh runtime, and restore state automatically, but prefer smaller fixtures to avoid hitting this limit.
+- **Experimental SQLite driver** — the database runs on an experimental PDO SQLite patch. Behaviour is not full production-parity with a MySQL- or PostgreSQL-backed Moodle installation; some queries or Moodle features may behave differently.
+
+## Troubleshooting
+
+If the playground gets stuck, displays a blank screen, or a page fails to load:
+
+1. **Read the logs first** — open the **Logs** tab. Reload with `?debug=true` appended to the URL for verbose output from the PHP worker and Service Worker.
+2. **Reset the playground** — click **Reset Playground** in the **Info** tab to force a clean boot. This resolves most stuck or corrupted runtime states.
+3. **Switch to a Chromium browser** — if blueprint steps that install plugins or language packs are failing, try Chrome or Edge. Network calls from WASM PHP are most reliable on Chromium.
+4. **Check the blueprint** — if a custom blueprint fails mid-boot, export it, simplify it to the minimum failing step, and check the [Blueprint reference](/blueprints/reference) for correct step syntax.
+
+For a deeper understanding of how all the pieces fit together — the Service Worker, PHP-WASM worker, MEMFS storage, and crash-recovery flow — see the [Architecture](/architecture) page.
