@@ -1,5 +1,5 @@
 ---
-title: "Troubleshooting Moodle Playground Issues"
+title: "Troubleshooting Guide for Moodle Playground Errors"
 sidebarTitle: "Troubleshooting"
 description: "Debug Moodle Playground runtime errors, SQLite driver bugs, crash symptoms, networking issues, and language pack failures with this troubleshooting guide."
 ---
@@ -270,6 +270,34 @@ The most useful files for runtime debugging:
     - `src/runtime/bootstrap.js`
 
     Check the shell log for the last bootstrap stage reached and retry with `?debug=true` to surface any hidden PHP errors.
+  </Accordion>
+
+  <Accordion title="White iframe, but URL and title inside Moodle are correct — resolved">
+    This was previously the most visible browser-side issue but has been resolved. The recovery watchdog in `src/remote/main.js` is still present as a safety net.
+
+    If this symptom reappears after changes to routing or bootstrap, inspect:
+
+    - `src/remote/main.js` — `isFrameDocumentStalled()`, `scheduleFrameRecovery()`
+    - `sw.js` — HTML response rewriting
+    - `src/runtime/php-compat.js` — `$_SERVER` variable construction
+  </Accordion>
+
+  <Accordion title="RangeError: Array buffer allocation failed — resolved">
+    This was caused by the bundle loader double-buffering (chunk buffers plus full output buffer). Fixed by preallocating a single destination buffer when `content-length` is known.
+
+    If this reappears after changes to the loader, inspect `lib/moodle-loader.js`.
+  </Accordion>
+
+  <Accordion title="Warnings like &quot;Undefined property: stdClass::$frontpage&quot;">
+    **Likely cause:** The bootstrap path skipped normal config hydration, or defaults are missing from the generated `config.php` or the persisted `config` table.
+
+    **Files:**
+
+    - `src/runtime/config-template.js`
+    - `lib/config-template.js`
+    - `src/runtime/bootstrap.js`
+
+    **Defaults currently seeded:** `navcourselimit`, `enablecompletion`, `frontpage`, `frontpageloggedin`, `frontpagecourselimit`, `guestloginbutton`, `rememberusername`, `auth_instructions`, `maintenance_enabled`, `maxbytes`.
   </Accordion>
 </AccordionGroup>
 

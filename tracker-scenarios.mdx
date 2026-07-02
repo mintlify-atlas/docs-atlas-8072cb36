@@ -4,7 +4,7 @@ sidebarTitle: "Tracker Scenarios"
 description: "Write a Moodle Playground Scenario block in a Moodle Tracker issue to let reviewers boot a preconfigured reproduction site with one click."
 ---
 
-A **Moodle Playground Scenario** is an explicit blueprint embedded directly in a Moodle Tracker issue description. When the [Open in Moodle Playground userscript](browser-userscripts) finds one on an issue page, it adds a button that boots the playground **preconfigured with the exact context needed to reproduce the issue** — the course, users, enrolments, and activities the bug requires are already in place before the reviewer clicks anything.
+A **Moodle Playground Scenario** is an explicit blueprint embedded directly in a Moodle Tracker issue description. When the [Open in Moodle Playground userscript](/browser-userscripts) finds one on an issue page, it adds a button that boots the playground **preconfigured with the exact context needed to reproduce the issue** — the course, users, enrolments, and activities the bug requires are already in place before the reviewer clicks anything.
 
 The scenario is machine-readable JSON. Free-text "Steps to reproduce" prose is **not** interpreted: converting arbitrary human-written steps into a deterministic Moodle setup would be unreliable, so the format is explicit and deterministic instead.
 
@@ -70,7 +70,7 @@ On `moodle.atlassian.net/browse/<KEY>` pages the userscript adds one floating bu
 | No scenario block | **▶ Open in Moodle Playground (starter site)** — opens the [starter scenario](#the-starter-scenario) (can be disabled by setting `STARTER_SCENARIO = false` in the userscript) |
 | Broken scenario block | **⚠ Moodle Playground: invalid scenario block** — a non-clickable grey badge; hover it to read the exact error message |
 
-The scenario blueprint is passed to the playground **verbatim**: the JSON you wrote in the issue is exactly what the playground loads. The playground then validates it like any other blueprint. The per-version compare and PR preview badges added by the [userscript's compare mode](browser-userscripts#compare-mode) are independent and always shown alongside the scenario button.
+The scenario blueprint is passed to the playground **verbatim**: the JSON you wrote in the issue is exactly what the playground loads. The playground then validates it like any other blueprint. The per-version compare and PR preview badges added by the [userscript's compare mode](/browser-userscripts#compare-mode) are independent and always shown alongside the scenario button.
 
 ## The starter scenario
 
@@ -97,10 +97,10 @@ The starter site gives reviewers a working Moodle instance with realistic conten
 ## See also
 
 <CardGroup cols={2}>
-  <Card title="Browser Userscripts" href="browser-userscripts" icon="code">
+  <Card title="Browser Userscripts" href="/browser-userscripts" icon="code">
     Installing the userscript that detects scenario blocks and shows the tracker button.
   </Card>
-  <Card title="PR Previews" href="github/pr-previews" icon="github">
+  <Card title="PR Previews" href="/github/pr-previews" icon="github">
     Automated preview buttons for plugin and theme pull requests.
   </Card>
 </CardGroup>
